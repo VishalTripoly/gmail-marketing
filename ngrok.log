@@ -1,0 +1,7 @@
+t=2026-05-27T16:57:33+0530 lvl=info msg="no configuration paths supplied"
+t=2026-05-27T16:57:33+0530 lvl=info msg="ignoring default config path" path="C:\\Users\\Vishal Bharadva\\AppData\\Local\\ngrok\\ngrok.yml" err="GetFileAttributesEx C:\\Users\\Vishal Bharadva\\AppData\\Local\\ngrok\\ngrok.yml: The system cannot find the path specified."
+t=2026-05-27T16:57:33+0530 lvl=info msg="FIPS 140 mode" enabled=false
+t=2026-05-27T16:57:33+0530 lvl=info msg="starting web service" obj=web addr=127.0.0.1:4040 allow_hosts=[]
+t=2026-05-27T16:57:33+0530 lvl=info msg="client session established" obj=tunnels.session
+t=2026-05-27T16:57:33+0530 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-05-27T16:57:34+0530 lvl=info msg="started tunnel" obj=tunnels name=command_line addr=http://localhost:3000 url=https://unworn-till-manlike.ngrok-free.dev

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gmail Marketing Center</title>
+  <!-- Google Fonts Outfit & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  <!-- Lucide Icons (CDN) for clean SVG icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+  <!-- App Container -->
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="main-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <i data-lucide="mail-open"></i>
+        </div>
+        <div class="brand-text">
+          <h1>Gmail Marketing</h1>
+          <p>Autopilot Campaign Dispatcher</p>
+        </div>
+      </div>
+      
+      <!-- System Status Badges -->
+      <div class="status-indicators">
+        <div id="connection-status" class="status-indicator-badge success">
+          <span class="dot pulse"></span>
+          <span class="text">Server Online</span>
+        </div>
+        <div id="campaign-status" class="status-indicator-badge idle">
+          <span class="dot"></span>
+          <span class="text">Idle</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Dashboard Content Grid -->
+    <main class="dashboard-grid">
+      
+      <!-- Left Column: Controls & Configuration -->
+      <section class="control-panel">
+        
+        <!-- Tab Navigation for settings and composer -->
+        <div class="panel-tabs">
+          <button class="tab-btn active" onclick="switchTab('tab-composer')">
+            <i data-lucide="pen-tool"></i> Compose Campaign
+          </button>
+          <button class="tab-btn" onclick="switchTab('tab-setup')">
+            <i data-lucide="settings"></i> SMTP & Settings
+          </button>
+          <button class="tab-btn" onclick="switchTab('tab-history'); loadHistory();">
+            <i data-lucide="history"></i> Campaign History
+          </button>
+        </div>
+
+        <!-- TAB: Composer & List Upload -->
+        <div id="tab-composer" class="tab-content active">
+          
+          <!-- Step 1: Upload Recipients List -->
+          <div class="card glass">
+            <div class="card-header">
+              <div class="header-icon"><i data-lucide="users"></i></div>
+              <h3>1. Recipients List</h3>
+            </div>
+            
+            <div class="card-body">
+              <!-- Drag and drop zone -->
+              <div id="drop-zone" class="drop-zone">
+                <i data-lucide="upload-cloud" class="upload-icon"></i>
+                <p class="drop-text">Drag & drop your CSV or Excel file here</p>
+                <p class="drop-subtext">Supports .csv, .xlsx, .xls</p>
+                <span class="file-select-btn">Choose File</span>
+                <input type="file" id="file-input" accept=".csv, .xlsx, .xls" style="display: none;">
+              </div>
+              
+              <!-- Selected File Status Info -->
+              <div id="file-info" class="file-info-box" style="display: none;">
+                <div class="file-details">
+                  <i data-lucide="file-spreadsheet" class="file-icon"></i>
+                  <div>
+                    <h5 id="file-name">recipients.xlsx</h5>
+                    <p id="file-size">45 KB</p>
+                  </div>
+                </div>
+                <button id="remove-file-btn" class="icon-btn danger" title="Remove sheet">
+                  <i data-lucide="trash-2"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Campaign Email Details -->
+          <div class="card glass composer-card">
+            <div class="card-header">
+              <div class="header-icon"><i data-lucide="edit-3"></i></div>
+              <h3>2. Mail Content</h3>
+            </div>
+            
+            <div class="card-body">
+              <!-- Dynamic placeholders badge list -->
+              <div class="placeholder-helper">
+                <span>Insert Placeholders:</span>
+                <div class="placeholder-tags">
+                  <button type="button" class="tag-btn" onclick="insertPlaceholder('Name')">{{Name}}</button>
+                  <button type="button" class="tag-btn" onclick="insertPlaceholder('Email')">{{Email}}</button>
+                  <span class="tag-tooltip" title="You can also use double curly braces around any column header from your uploaded sheet, e.g. {{Company Name}}"><i data-lucide="help-circle"></i></span>
+                </div>
+              </div>
+
+              <!-- Email Subject -->
+              <div class="input-group">
+                <label for="email-subject">Subject</label>
+                <input type="text" id="email-subject" placeholder="E.g., Welcome to the family, {{Name}}!" required>
+              </div>
+
+              <!-- Email Body (Text or simple HTML) -->
+              <div class="input-group">
+                <div class="label-row">
+                  <label for="email-body">Email Body (HTML supported)</label>
+                  <span id="rich-text-tip" class="subtext">Use HTML tags for formatting if desired</span>
+                </div>
+                <textarea id="email-body" rows="10" placeholder="Hello {{Name}},\n\nWe are excited to share some updates with you...\n\nBest regards,\nMarketing Team" required></textarea>
+              </div>
+
+              <!-- Run Control buttons -->
+              <div class="campaign-controls">
+                <button id="start-btn" class="btn primary-gradient">
+                  <i data-lucide="play"></i> Start Sending
+                </button>
+                <button id="pause-btn" class="btn warning" disabled>
+                  <i data-lucide="pause"></i> Pause
+                </button>
+                <button id="reset-btn" class="btn danger" title="Reset all progress">
+                  <i data-lucide="refresh-cw"></i> Reset
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        <!-- TAB: SMTP Server Setup & Sending Intervals -->
+        <div id="tab-setup" class="tab-content">
+          
+          <!-- SMTP Configuration Credentials Card -->
+          <div class="card glass">
+            <div class="card-header">
+              <div class="header-icon"><i data-lucide="key-round"></i></div>
+              <h3>Gmail SMTP Config</h3>
+            </div>
+            
+            <div class="card-body">
+              <div class="alert info">
+                <i data-lucide="info" class="alert-icon"></i>
+                <div class="alert-content">
+                  <h5>Gmail Setup Required</h5>
+                  <p>Gmail SMTP requires enabling **2-Step Verification** on your Google account and creating a 16-character **App Password** under Security Settings. Do not enter your main Google password.</p>
+                </div>
+              </div>
+
+              <div class="input-group">
+                <label for="smtp-user">Gmail Address</label>
+                <input type="email" id="smtp-user" placeholder="yourname@gmail.com" required>
+              </div>
+
+              <div class="input-group">
+                <label for="smtp-pass">Gmail App Password</label>
+                <div class="password-input-wrapper">
+                  <input type="password" id="smtp-pass" placeholder="•••• •••• •••• ••••" required>
+                  <button type="button" id="toggle-password" class="password-toggle">
+                    <i data-lucide="eye"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dispatch Intervals Card -->
+          <div class="card glass">
+            <div class="card-header">
+              <div class="header-icon"><i data-lucide="timer"></i></div>
+              <h3>Sending & Tracking Settings</h3>
+            </div>
+            
+            <div class="card-body">
+              <!-- Range slider for intervals -->
+              <div class="input-group">
+                <div class="label-row">
+                  <label for="interval-minutes">Sending Interval</label>
+                  <span id="interval-readout" class="badge">Every 3.0 mins</span>
+                </div>
+                <input type="range" id="interval-minutes" min="0.05" max="15" step="0.05" value="3">
+                <div class="range-labels">
+                  <span>Fast Test (3s)</span>
+                  <span>1 min</span>
+                  <span>5 mins</span>
+                  <span>10 mins</span>
+                  <span>15 mins</span>
+                </div>
+              </div>
+
+              <hr class="card-divider">
+
+              <!-- Expose Port / Tracking setup -->
+              <div class="input-group">
+                <label for="tracking-url">Public Tracking Base URL (Optional)</label>
+                <input type="url" id="tracking-url" placeholder="E.g., https://xxxx.ngrok-free.app">
+                <span class="subtext" style="font-size: 0.75rem; color: var(--text-dark); margin-top: 0.2rem; display: block;">
+                  Expose port 3000 (e.g. run <code>ngrok http 3000</code>) and enter the public URL here to enable email open and link click tracking. Leave empty to disable.
+                </span>
+              </div>
+
+              <div class="alert info" style="margin-top: 1rem; margin-bottom: 0.5rem; background: rgba(168, 85, 247, 0.05); border-color: rgba(168, 85, 247, 0.15); color: #e9d5ff;">
+                <i data-lucide="globe" class="alert-icon" style="color: var(--color-secondary); margin-top: 2px;"></i>
+                <div class="alert-content">
+                  <h5 style="color: #f3e8ff;">Tracking with Tunneling</h5>
+                  <p style="color: #d8b4fe;">Recipient email clients cannot resolve links on <i>localhost</i>. To track opens and clicks, you must use a public URL. A free tunnel link from <b>ngrok</b> works perfectly for local testing.</p>
+                </div>
+              </div>
+
+              <hr class="card-divider">
+
+              <!-- Connections Testing Area -->
+              <div class="input-group">
+                <label for="test-email-target">Test Target Email</label>
+                <input type="email" id="test-email-target" placeholder="E.g., yourname@gmail.com">
+              </div>
+
+              <button id="test-connection-btn" class="btn secondary">
+                <i data-lucide="send"></i> Test Configuration
+              </button>
+              
+              <div id="test-connection-result" class="result-message" style="display: none;"></div>
+            </div>
+          </div>
+
+          <!-- Configuration actions -->
+          <div class="settings-actions">
+            <button id="save-settings-btn" class="btn primary-gradient">
+              <i data-lucide="save"></i> Save Settings
+            </button>
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- Right Column: Monitoring Metrics, Logs, Live Status -->
+      <section class="monitoring-panel">
+        
+        <!-- Live Status Metrics Summary Row -->
+        <div class="metrics-grid">
+          
+          <div class="metric-card glass sent">
+            <div class="metric-icon"><i data-lucide="check-circle-2"></i></div>
+            <div class="metric-data">
+              <span class="label">Delivered</span>
+              <h2 id="metric-sent">0</h2>
+            </div>
+          </div>
+
+          <div class="metric-card glass opened">
+            <div class="metric-icon"><i data-lucide="eye"></i></div>
+            <div class="metric-data">
+              <span class="label">Opened</span>
+              <h2 id="metric-opened">0</h2>
+            </div>
+          </div>
+
+          <div class="metric-card glass clicked">
+            <div class="metric-icon"><i data-lucide="mouse-pointer-click"></i></div>
+            <div class="metric-data">
+              <span class="label">Clicked</span>
+              <h2 id="metric-clicked">0</h2>
+            </div>
+          </div>
+
+          <div class="metric-card glass failed">
+            <div class="metric-icon"><i data-lucide="alert-triangle"></i></div>
+            <div class="metric-data">
+              <span class="label">Failed</span>
+              <h2 id="metric-failed">0</h2>
+            </div>
+          </div>
+
+          <div class="metric-card glass pending">
+            <div class="metric-icon"><i data-lucide="clock"></i></div>
+            <div class="metric-data">
+              <span class="label">Pending</span>
+              <h2 id="metric-pending">0</h2>
+            </div>
+          </div>
+
+          <div class="metric-card glass rate">
+            <div class="metric-icon"><i data-lucide="percent"></i></div>
+            <div class="metric-data">
+              <span class="label">Success Rate</span>
+              <h2 id="metric-rate">100%</h2>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Global Campaign Progress Section -->
+        <div class="card glass progress-card">
+          <div class="progress-info">
+            <span class="progress-title">Campaign Send Progress</span>
+            <span id="progress-text">0 / 0 Emails Sent</span>
+          </div>
+          <div class="progress-bar-container">
+            <div id="progress-fill" class="progress-bar-fill" style="width: 0%"></div>
+          </div>
+          <!-- Next scheduled email dispatcher card -->
+          <div id="countdown-card" class="countdown-card" style="display: none;">
+            <i data-lucide="loader" class="spin-icon"></i>
+            <span id="countdown-text">Preparing next delivery...</span>
+          </div>
+        </div>
+
+        <!-- Console Logging Terminal Card -->
+        <div class="card glass console-card">
+          <div class="card-header">
+            <div class="header-icon"><i data-lucide="terminal"></i></div>
+            <h3>Activity Console Logs</h3>
+            <button id="clear-logs-btn" class="icon-btn sm" title="Clear console view">
+              <i data-lucide="ban"></i>
+            </button>
+          </div>
+          <div class="card-body">
+            <div id="console-terminal" class="console-terminal">
+              <!-- Dynamically populated logs -->
+              <div class="log-line system">[SYSTEM] Welcome to Gmail Marketing Console. Upload a spreadsheet to start.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: Campaign History -->
+        <div id="tab-history" class="tab-content">
+          <div class="card glass">
+            <div class="card-header">
+              <div class="header-icon"><i data-lucide="history"></i></div>
+              <h3>Past Campaign Runs</h3>
+            </div>
+            <div class="card-body">
+              <div class="table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date & Time</th>
+                      <th>Subject</th>
+                      <th>Total</th>
+                      <th>Sent</th>
+                      <th>Failed</th>
+                      <th>Opened</th>
+                      <th>Clicked</th>
+                      <th width="150" style="text-align: center;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="history-table-body">
+                    <tr>
+                      <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                        No campaign runs recorded yet.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- Bottom Section: Detailed Recipients Status Table Grid -->
+    <footer class="queue-panel">
+      <div class="card glass">
+        <div class="card-header table-header">
+          <div class="table-title" style="display: flex; align-items: center; gap: 1rem;">
+            <div class="header-icon"><i data-lucide="list-todo"></i></div>
+            <h3>Recipient Queue Details</h3>
+            <button id="export-current-btn" class="btn secondary" style="padding: 6px 12px; font-size: 0.85rem; height: 32px; display: flex; align-items: center; gap: 4px;" title="Export current campaign data as CSV" onclick="exportCurrentCampaign()">
+              <i data-lucide="download" style="width: 14px; height: 14px;"></i> Export CSV
+            </button>
+          </div>
+          <div class="table-actions">
+            <!-- Filter Options -->
+            <div class="filter-group">
+              <button class="filter-btn active" onclick="filterQueue('all')">All</button>
+              <button class="filter-btn" onclick="filterQueue('pending')">Pending</button>
+              <button class="filter-btn" onclick="filterQueue('sent')">Sent</button>
+              <button class="filter-btn" onclick="filterQueue('failed')">Failed</button>
+            </div>
+            <!-- Search bar -->
+            <div class="search-wrapper">
+              <i data-lucide="search" class="search-icon"></i>
+              <input type="text" id="queue-search" placeholder="Search by name or email..." oninput="handleSearch()">
+            </div>
+          </div>
+        </div>
+        
+        <div class="card-body table-body">
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th width="60">Index</th>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Company</th>
+                  <th>City</th>
+                  <th width="120">Status</th>
+                  <th width="160">Open Tracker</th>
+                  <th width="230">Link Clicks</th>
+                  <th>Sent Timestamp</th>
+                  <th>Error Log Details</th>
+                </tr>
+              </thead>
+              <tbody id="queue-tbody">
+                <tr>
+                  <td colspan="10" class="table-empty">
+                    <i data-lucide="users-2"></i>
+                    <p>No recipient list loaded yet. Upload your Excel/CSV sheet from the Compose tab.</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Lucide Icons initialization -->
+  <script>
+    lucide.createIcons();
+  </script>
+  <!-- Main Javascript Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
