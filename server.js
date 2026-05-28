@@ -580,20 +580,12 @@ app.post('/api/upload-recipients', upload.single('file'), (req, res) => {
       return res.status(400).json({ error: 'No recipient contacts with valid emails were found.' });
     }
     
-    // Archive previous campaign if there was sending activity
-    if (db.campaign.recipients && db.campaign.recipients.length > 0 && (db.campaign.sentCount > 0 || db.campaign.failedCount > 0)) {
-      archiveCurrentCampaignRun();
-    }
-    
-    // Cancel any active schedulers and reset campaign queue
+    // Cancel any active schedulers and append to campaign queue
     if (timerId) clearTimeout(timerId);
     db.campaign.status = 'IDLE';
-    db.campaign.totalCount = recipients.length;
-    db.campaign.sentCount = 0;
-    db.campaign.failedCount = 0;
+    db.campaign.recipients = [...(db.campaign.recipients || []), ...recipients];
+    db.campaign.totalCount = db.campaign.recipients.length;
     db.campaign.nextSendTime = null;
-    db.campaign.recipients = recipients;
-    db.campaign.logs = [];
     
     addLog(`Uploaded ${recipients.length} recipients from "${req.file.originalname}" (Auto-detected email column: "${emailKey}", name column: "${nameKey || 'None'}").`, 'info');
     
@@ -625,21 +617,26 @@ app.post('/api/campaign/start', (req, res) => {
   db.campaign.body = body;
   
   if (db.campaign.status === 'IDLE' || db.campaign.status === 'COMPLETED') {
-    db.campaign.sentCount = 0;
-    db.campaign.failedCount = 0;
-    db.campaign.openedCount = 0;
-    db.campaign.clickedCount = 0;
-    db.campaign.recipients.forEach(r => {
-      r.status = 'PENDING';
-      r.sentAt = null;
-      r.error = null;
-      r.opened = false;
-      r.openedAt = null;
-      r.opensCount = 0;
-      r.clicks = [];
-    });
-    db.campaign.logs = [];
-    addLog('Starting new email campaign deployment...', 'info');
+    const hasPending = db.campaign.recipients.some(r => r.status === 'PENDING');
+    if (!hasPending) {
+      db.campaign.sentCount = 0;
+      db.campaign.failedCount = 0;
+      db.campaign.openedCount = 0;
+      db.campaign.clickedCount = 0;
+      db.campaign.recipients.forEach(r => {
+        r.status = 'PENDING';
+        r.sentAt = null;
+        r.error = null;
+        r.opened = false;
+        r.openedAt = null;
+        r.opensCount = 0;
+        r.clicks = [];
+      });
+      db.campaign.logs = [];
+      addLog('Starting new email campaign deployment...', 'info');
+    } else {
+      addLog('Resuming email campaign deployment with new pending recipients...', 'info');
+    }
   } else if (db.campaign.status === 'PAUSED') {
     addLog('Resuming current paused email campaign...', 'info');
   }

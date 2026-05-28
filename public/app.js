@@ -364,21 +364,11 @@ resetBtn.addEventListener('click', async () => {
   }
 });
 
-async function resetCampaignState() {
-  if (!confirm('Are you sure you want to remove the current recipient list file?')) return;
-  
-  try {
-    const response = await fetch('/api/campaign/clear', { method: 'POST' });
-    if (response.ok) {
-      dropZone.style.display = 'flex';
-      fileInfo.style.display = 'none';
-      fileInput.value = '';
-      showTerminalLog('Spreadsheet recipients list cleared from engine database.', 'info');
-      await fetchStatus();
-    }
-  } catch (error) {
-    showTerminalLog(`Error resetting queue: ${error.message}`, 'error');
-  }
+function resetCampaignState() {
+  dropZone.style.display = 'flex';
+  fileInfo.style.display = 'none';
+  fileInput.value = '';
+  showTerminalLog('Excel sheet reference cleared in UI. Active queue details in database are kept.', 'info');
 }
 
 /* ==========================================================================
@@ -779,6 +769,21 @@ function escapeHtml(str) {
    ========================================================================== */
 window.exportCurrentCampaign = function() {
   window.location.href = '/api/campaign/export';
+};
+
+window.clearCampaignQueue = async function() {
+  if (!confirm('Are you sure you want to completely clear the active recipient queue? This will permanently delete all records from the current queue.')) {
+    return;
+  }
+  try {
+    const response = await fetch('/api/campaign/clear', { method: 'POST' });
+    if (response.ok) {
+      showTerminalLog('Active recipient queue completely cleared from the database.', 'info');
+      await fetchStatus();
+    }
+  } catch (error) {
+    showTerminalLog(`Error clearing queue: ${error.message}`, 'error');
+  }
 };
 
 window.exportHistoryRun = function(runId) {
