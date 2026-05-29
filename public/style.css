@@ -1718,3 +1718,88 @@ input[type="date"]:focus {
 .status-dot.idle {
   background-color: var(--text-muted);
 }
+
+/* Past Calendar Day Cells — dimmed, no "PAST" text label */
+.calendar-day-cell.past-day {
+  opacity: 0.5;
+}
+
+.calendar-day-cell.past-day:hover {
+  opacity: 0.75;
+  border-color: rgba(255,255,255,0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+
+/* Delivered count chip shown on past days that had a campaign */
+.delivered-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 0.45rem;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.delivered-chip.has-data {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+}
+
+.delivered-chip .chip-icon {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.delivered-chip.has-data .chip-icon {
+  color: #10b981;
+}
+
+.delivered-chip .chip-count {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #10b981;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.02em;
+}
+
+.delivered-chip .chip-label {
+  font-size: 0.62rem;
+  color: #6ee7b7;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+
+/* Alert warning variant */
+.alert.warning {
+  border-left-color: var(--color-warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.alert.warning .alert-icon {
+  color: var(--color-warning, #f59e0b);
+}
+
+/* Responsive: calendar grid on mobile */
+@media (max-width: 768px) {
+  .calendar-day-cell {
+    min-height: 70px;
+    padding: 0.4rem;
+  }
+  .calendar-day-cell .campaign-badge {
+    display: none;
+  }
+  .calendar-day-cell .day-number {
+    font-size: 0.9rem;
+  }
+  .calendar-day-cell.past-day::after {
+    display: none;
+  }
+}

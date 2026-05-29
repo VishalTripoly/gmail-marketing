@@ -88,11 +88,22 @@
         <div id="composer-dashboard-view" class="tab-subview" style="display: none;">
           
           <!-- Back navigation header -->
-          <div class="dashboard-back-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+          <div class="dashboard-back-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
             <button class="btn secondary" onclick="backToCalendar()" style="display: flex; align-items: center; gap: 6px; padding: 8px 16px;">
               <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i> Back to Calendar
             </button>
-            <h2 id="active-campaign-date-label" style="font-size: 1.25rem; font-weight: 600; color: #fff; background: linear-gradient(135deg, var(--color-primary), var(--color-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Campaign for: 2026-06-01</h2>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+              <h2 id="active-campaign-date-label" style="font-size: 1.25rem; font-weight: 700; margin: 0; background: linear-gradient(135deg, var(--color-primary), var(--color-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Campaign for 01-06-2026</h2>
+            </div>
+          </div>
+
+          <!-- Past Date Warning Banner (shown only for past dates) -->
+          <div id="past-date-warning" class="alert warning" style="display: none; margin-bottom: 1rem;">
+            <i data-lucide="alert-triangle" class="alert-icon"></i>
+            <div class="alert-content">
+              <h5>Past Date Selected — Read-Only View</h5>
+              <p>You cannot run a campaign on a past date. Select today or a future date to compose and send. You can view historical data below.</p>
+            </div>
           </div>
 
           <!-- Live Status Metrics Summary Row (Spans full width) -->
@@ -237,9 +248,6 @@
                     </button>
                     <button id="pause-btn" class="btn warning" disabled>
                       <i data-lucide="pause"></i> Pause
-                    </button>
-                    <button id="reset-btn" class="btn danger" title="Reset all progress">
-                      <i data-lucide="refresh-cw"></i> Reset
                     </button>
                   </div>
                 </div>
@@ -421,6 +429,7 @@
                   <div class="log-line system">[SYSTEM] Welcome to Gmail Marketing Console. Upload a spreadsheet to start.</div>
                 </div>
               </div>
+            </div>
           </div>
 
           <!-- Bottom Row 3: Date Campaign History Runs (Full Width) -->
@@ -428,7 +437,10 @@
             <div class="card glass" style="margin-bottom: 0;">
               <div class="card-header">
                 <div class="header-icon"><i data-lucide="history"></i></div>
-                <h3>Past Runs for this Calendar Date</h3>
+                <h3>
+                  Past Runs for <span id="history-date-label">DD-MM-YYYY</span>
+                  <small id="history-sub-label" style="display: block; font-size: 0.75rem; color: var(--text-muted); font-weight: normal; margin-top: 2px;">No historical data for selected date</small>
+                </h3>
               </div>
               <div class="card-body">
                 <div class="table-container">
@@ -453,6 +465,28 @@
                       </tr>
                     </tbody>
                   </table>
+                </div>
+
+                <!-- Date History Pagination -->
+                <div class="table-pagination" style="display: flex; align-items: center; justify-content: space-between; padding: 1rem 0.5rem 0.25rem 0.5rem; border-top: 1px solid var(--border-color); margin-top: 0.5rem; flex-wrap: wrap; gap: 1rem;">
+                  <div class="pagination-info" style="font-size: 0.85rem; color: var(--text-muted);">
+                    Showing <span id="dh-pagination-start">0</span> to <span id="dh-pagination-end">0</span> of <span id="dh-pagination-total">0</span> runs
+                  </div>
+                  <div class="pagination-controls" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <div class="page-size-selector" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+                      <span>Show:</span>
+                      <select id="dh-page-size-select" onchange="changeDHPageSize()" style="width: auto; padding: 0.3rem 1.8rem 0.3rem 0.6rem; font-size: 0.8rem; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; color: #fff;">
+                        <option value="5" selected>5</option>
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                      </select>
+                    </div>
+                    <div class="pagination-buttons" style="display: flex; gap: 0.35rem;">
+                      <button id="dh-prev-page-btn" class="btn secondary" onclick="dhPrevPage()" style="padding: 4px 10px; height: 30px; font-size: 0.8rem;"><i data-lucide="chevron-left" style="width: 14px; height: 14px;"></i></button>
+                      <span id="dh-current-page-display" style="display: inline-flex; align-items: center; justify-content: center; min-width: 60px; font-size: 0.85rem; font-weight: 600; color: #fff; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 6px; padding: 0 8px;">Page 1 / 1</span>
+                      <button id="dh-next-page-btn" class="btn secondary" onclick="dhNextPage()" style="padding: 4px 10px; height: 30px; font-size: 0.8rem;"><i data-lucide="chevron-right" style="width: 14px; height: 14px;"></i></button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -614,36 +648,82 @@
               <h2 id="history-metric-rate">100%</h2>
             </div>
           </div>
+
+          <div class="metric-card glass" style="border-color: rgba(139,92,246,0.3); background: rgba(139,92,246,0.05);">
+            <div class="metric-icon" style="background: rgba(139,92,246,0.15); color: #a78bfa;"><i data-lucide="layers"></i></div>
+            <div class="metric-data">
+              <span class="label">Total Campaigns</span>
+              <h2 id="history-total-campaigns" style="color: #a78bfa;">0</h2>
+            </div>
+          </div>
         </div>
 
         <div class="card glass" style="margin-bottom: 0;">
-          <div class="card-header">
-            <div class="header-icon"><i data-lucide="history"></i></div>
-            <h3>Past Campaign Runs</h3>
+          <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <div class="header-icon"><i data-lucide="history"></i></div>
+              <h3>Past Campaign Runs <span id="total-campaigns" class="badge">0</span></h3>
+            </div>
+            <!-- Date Filters -->
+            <div class="history-filters" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+              <div class="input-group" style="margin-bottom: 0; flex-direction: row; align-items: center; gap: 0.5rem;">
+                <label for="history-filter-start" style="margin-bottom: 0; font-size: 0.85rem; white-space: nowrap; color: var(--text-muted);">From:</label>
+                <input type="date" id="history-filter-start" onchange="handleHistoryFilterChange()" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; color: #fff; height: 32px;">
+              </div>
+              <div class="input-group" style="margin-bottom: 0; flex-direction: row; align-items: center; gap: 0.5rem;">
+                <label for="history-filter-end" style="margin-bottom: 0; font-size: 0.85rem; white-space: nowrap; color: var(--text-muted);">To:</label>
+                <input type="date" id="history-filter-end" onchange="handleHistoryFilterChange()" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; color: #fff; height: 32px;">
+              </div>
+              <button class="btn secondary" onclick="clearHistoryFilters()" style="padding: 6px 12px; height: 32px; font-size: 0.85rem;">Clear</button>
+            </div>
           </div>
           <div class="card-body">
             <div class="table-container">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Date & Time</th>
+                    <th>Campaign Date</th>
+                    <th>Run Time</th>
                     <th>Subject</th>
                     <th>Total</th>
                     <th>Sent</th>
                     <th>Failed</th>
                     <th>Opened</th>
                     <th>Clicked</th>
-                    <th width="150" style="text-align: center;">Actions</th>
+                    <th width="110" style="text-align: center;">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="history-table-body">
                   <tr>
-                    <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                    <td colspan="9" style="text-align: center; padding: 2rem; color: var(--text-muted);">
                       No campaign runs recorded yet.
                     </td>
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            <!-- Pagination Controls -->
+            <div class="table-pagination" style="display: flex; align-items: center; justify-content: space-between; padding: 1rem 0.5rem 0.25rem 0.5rem; border-top: 1px solid var(--border-color); margin-top: 0.5rem; flex-wrap: wrap; gap: 1rem;">
+              <div class="pagination-info" style="font-size: 0.85rem; color: var(--text-muted);">
+                Showing <span id="gh-pagination-start">0</span> to <span id="gh-pagination-end">0</span> of <span id="gh-pagination-total">0</span> entries
+              </div>
+              <div class="pagination-controls" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <div class="page-size-selector" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+                  <span>Show:</span>
+                  <select id="gh-page-size-select" onchange="changeGHPageSize()" style="width: auto; padding: 0.3rem 1.8rem 0.3rem 0.6rem; font-size: 0.8rem; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; color: #fff;">
+                    <option value="10">10</option>
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </select>
+                </div>
+                <div class="pagination-buttons" style="display: flex; gap: 0.35rem;">
+                  <button id="gh-prev-page-btn" class="btn secondary" onclick="ghPrevPage()" style="padding: 4px 10px; height: 30px; font-size: 0.8rem;"><i data-lucide="chevron-left" style="width: 14px; height: 14px;"></i></button>
+                  <span id="gh-current-page-display" style="display: inline-flex; align-items: center; justify-content: center; min-width: 60px; font-size: 0.85rem; font-weight: 600; color: #fff; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 6px; padding: 0 8px;">Page 1 / 1</span>
+                  <button id="gh-next-page-btn" class="btn secondary" onclick="ghNextPage()" style="padding: 4px 10px; height: 30px; font-size: 0.8rem;"><i data-lucide="chevron-right" style="width: 14px; height: 14px;"></i></button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -12,10 +12,23 @@ let currentSearch = '';
 let settingsData = { smtpUser: '', smtpPass: '', intervalMinutes: 3, testEmail: '', trackingUrl: '' };
 let settingsLoaded = false;
 let fileReferenceCleared = false;
+let isPastDate = false;
 
 // Pagination State
 let currentPage = 1;
 let pageSize = 25;
+
+// Date History Pagination State
+let dhCurrentPage = 1;
+let dhPageSize = 5;
+let dhAllRuns = [];
+
+// Global History Pagination & Filter State
+let ghAllRuns = [];
+let ghCurrentPage = 1;
+let ghPageSize = 25;
+let ghStartDate = '';
+let ghEndDate = '';
 
 // UI Elements
 const dropZone = document.getElementById('drop-zone');
@@ -30,7 +43,7 @@ const bodyInput = document.getElementById('email-body');
 
 const startBtn = document.getElementById('start-btn');
 const pauseBtn = document.getElementById('pause-btn');
-const resetBtn = document.getElementById('reset-btn');
+const saveDraftBtn = document.getElementById('save-draft-btn');
 
 const smtpUserInput = document.getElementById('smtp-user');
 const smtpPassInput = document.getElementById('smtp-pass');
@@ -153,6 +166,7 @@ window.renderCalendar = function() {
   }
   
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
   
   // Render day cells
   for (let day = 1; day <= daysInMonth; day++) {
@@ -163,14 +177,23 @@ window.renderCalendar = function() {
     const monthStr = String(currentMonth + 1).padStart(2, '0');
     const dateStr = `${currentYear}-${monthStr}-${dayStr}`;
     
+    const cellDate = new Date(currentYear, currentMonth, day);
+    const isPast = cellDate < today;
+    const isToday = today.getDate() === day && today.getMonth() === currentMonth && today.getFullYear() === currentYear;
+    
     // Highlight today
-    if (today.getDate() === day && today.getMonth() === currentMonth && today.getFullYear() === currentYear) {
+    if (isToday) {
       cell.classList.add('today');
+    }
+    
+    // Visually dim past days
+    if (isPast) {
+      cell.classList.add('past-day');
     }
     
     cell.setAttribute('onclick', `loadCampaignForDate('${dateStr}')`);
     
-    // Day number
+    // Day number (top-right)
     const numEl = document.createElement('div');
     numEl.className = 'day-number';
     numEl.textContent = day;
@@ -179,31 +202,46 @@ window.renderCalendar = function() {
     // Campaign details/badges if any
     const camp = calendarCampaigns[dateStr];
     if (camp) {
-      const badge = document.createElement('div');
-      const statusLower = (camp.status || 'idle').toLowerCase();
-      badge.className = `campaign-badge ${statusLower}`;
-      
-      const title = document.createElement('div');
-      title.className = 'campaign-title';
-      title.textContent = camp.subject || '(No Subject)';
-      badge.appendChild(title);
-      
-      const meta = document.createElement('div');
-      meta.className = 'campaign-meta';
-      
-      const dot = document.createElement('span');
-      dot.className = `status-dot ${statusLower}`;
-      meta.appendChild(dot);
-      
-      const text = document.createElement('span');
-      text.textContent = `${camp.count} contact${camp.count !== 1 ? 's' : ''}`;
-      meta.appendChild(text);
-      
-      badge.appendChild(meta);
-      cell.appendChild(badge);
+      if (isPast) {
+        // Past day with campaign: show delivered count chip prominently
+        const sentCount  = camp.sentCount  || 0;
+        const totalCount = camp.totalCount || camp.count || 0;
+        
+        const chip = document.createElement('div');
+        chip.className = 'delivered-chip' + (sentCount > 0 ? ' has-data' : '');
+        chip.innerHTML = sentCount > 0
+          ? `<span class="chip-icon">✓</span><span class="chip-count">${sentCount}</span><span class="chip-label">delivered</span>`
+          : `<span class="chip-icon">—</span><span class="chip-label">${totalCount} contacts</span>`;
+        cell.appendChild(chip);
+      } else {
+        // Current / future day: show subject + contacts badge
+        const badge = document.createElement('div');
+        const statusLower = (camp.status || 'idle').toLowerCase();
+        badge.className = `campaign-badge ${statusLower}`;
+        
+        const title = document.createElement('div');
+        title.className = 'campaign-title';
+        title.textContent = camp.subject || '(No Subject)';
+        badge.appendChild(title);
+        
+        const meta = document.createElement('div');
+        meta.className = 'campaign-meta';
+        
+        const dot = document.createElement('span');
+        dot.className = `status-dot ${statusLower}`;
+        meta.appendChild(dot);
+        
+        const text = document.createElement('span');
+        text.textContent = `${camp.count} contact${camp.count !== 1 ? 's' : ''}`;
+        meta.appendChild(text);
+        
+        badge.appendChild(meta);
+        cell.appendChild(badge);
+      }
     }
     
     gridEl.appendChild(cell);
+
   }
   
   // Refresh Lucide icons if any
@@ -215,12 +253,49 @@ window.renderCalendar = function() {
 window.loadCampaignForDate = function(dateStr) {
   selectedDate = dateStr;
   
+  // Determine if the date is in the past
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const selectedDt = new Date(y, m - 1, d);
+  isPastDate = selectedDt < today;
+  
   document.getElementById('composer-calendar-view').style.display = 'none';
   document.getElementById('composer-dashboard-view').style.display = 'block';
   
+  // Format date as DD-MM-YYYY for display
+  const dayStr = String(d).padStart(2, '0');
+  const monStr = String(m).padStart(2, '0');
+  const formattedDate = `${dayStr}-${monStr}-${y}`;
+  
   const labelEl = document.getElementById('active-campaign-date-label');
-  if (labelEl) {
-    labelEl.textContent = `Campaign for: ${dateStr}`;
+  if (labelEl) labelEl.textContent = `Campaign for ${formattedDate}`;
+  
+  // Update history panel label
+  const historyLabel = document.getElementById('history-date-label');
+  if (historyLabel) historyLabel.textContent = formattedDate;
+  
+  // Show/hide past date warning and disable controls if past
+  const pastWarning = document.getElementById('past-date-warning');
+  if (pastWarning) pastWarning.style.display = isPastDate ? 'flex' : 'none';
+  
+  // Disable campaign control buttons for past dates
+  const controlsToDisable = [startBtn, saveDraftBtn, dropZone];
+  controlsToDisable.forEach(el => {
+    if (el) {
+      if (isPastDate) {
+        el.style.opacity = '0.4';
+        el.style.pointerEvents = 'none';
+      } else {
+        el.style.opacity = '';
+        el.style.pointerEvents = '';
+      }
+    }
+  });
+  
+  // Also handle the file upload area
+  if (fileInput) {
+    fileInput.disabled = isPastDate;
   }
   
   // Clear file references in UI and reset loaded campaign details
@@ -231,12 +306,27 @@ window.loadCampaignForDate = function(dateStr) {
   subjectInput.value = '';
   bodyInput.value = '';
   
+  // Reset date history pagination
+  dhCurrentPage = 1;
+  dhAllRuns = [];
+  
   loadDateHistory(dateStr);
   fetchStatus();
 };
 
 window.backToCalendar = function() {
   selectedDate = null;
+  isPastDate = false;
+  
+  // Restore control visibility
+  [startBtn, saveDraftBtn, dropZone].forEach(el => {
+    if (el) {
+      el.style.opacity = '';
+      el.style.pointerEvents = '';
+    }
+  });
+  if (fileInput) fileInput.disabled = false;
+  
   document.getElementById('composer-calendar-view').style.display = 'block';
   document.getElementById('composer-dashboard-view').style.display = 'none';
   fetchCalendarCampaigns();
@@ -471,7 +561,6 @@ testConnectionBtn.addEventListener('click', async () => {
 /* ==========================================================================
    Campaign Actions: Start, Pause, Reset, Save Draft
    ========================================================================== */
-const saveDraftBtn = document.getElementById('save-draft-btn');
 
 saveDraftBtn.addEventListener('click', async () => {
   const subject = subjectInput.value.trim();
@@ -580,27 +669,6 @@ pauseBtn.addEventListener('click', async () => {
   }
 });
 
-resetBtn.addEventListener('click', async () => {
-  if (!confirm('Are you sure you want to reset current campaign progress and stats? This resets all statuses to PENDING.')) {
-    return;
-  }
-  resetBtn.disabled = true;
-  try {
-    const response = await fetch('/api/campaign/reset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: selectedDate })
-    });
-    if (response.ok) {
-      showTerminalLog('Campaign configuration and progress values reset.', 'info');
-      await fetchStatus();
-    }
-  } catch (error) {
-    showTerminalLog(`Failed to reset: ${error.message}`, 'error');
-  } finally {
-    resetBtn.disabled = false;
-  }
-});
 
 function resetCampaignState() {
   fileReferenceCleared = true;
@@ -705,8 +773,16 @@ async function fetchStatus() {
     
     // Refresh components
     updateCampaignStatusBadge();
-    updateMetrics(data.campaign);
-    updateProgressBar(data.campaign);
+    // Only update live metrics when:
+    //   - campaign is RUNNING/PAUSED (live data matters), OR
+    //   - it's a fresh/future date with no history runs yet
+    // Skip for IDLE state when history runs exist — those are shown from aggregated history
+    const hasHistoryRuns = dhAllRuns && dhAllRuns.length > 0;
+    const useLiveMetrics = !isPastDate && !(currentStatus === 'IDLE' && hasHistoryRuns);
+    if (useLiveMetrics) {
+      updateMetrics(data.campaign);
+      updateProgressBar(data.campaign);
+    }
     updateSchedulerTimer(data.campaign.nextSendTime);
     renderConsoleTerminal();
     renderRecipientsTable();
@@ -1247,135 +1323,282 @@ window.exportHistoryRun = function(runId) {
 };
 
 window.loadHistory = async function() {
-  const tableBody = document.getElementById('history-table-body');
   try {
     const res = await fetch('/api/history');
     if (!res.ok) throw new Error('Failed to fetch history');
-    const runs = await res.json();
+    ghAllRuns = await res.json();
     
-    // Aggregation of total metrics across all runs
-    let totalDelivered = 0;
-    let totalOpened = 0;
-    let totalClicked = 0;
-    let totalFailed = 0;
-    let totalPending = 0;
-    
-    runs.forEach(run => {
-      totalDelivered += (run.sentCount || 0);
-      totalOpened += (run.openedCount || 0);
-      totalClicked += (run.clickedCount || 0);
-      totalFailed += (run.failedCount || 0);
-      totalPending += Math.max(0, (run.totalCount || 0) - (run.sentCount || 0) - (run.failedCount || 0));
-    });
-    
-    const divisor = totalDelivered + totalFailed;
-    const successRate = divisor > 0 ? ((totalDelivered / divisor) * 100).toFixed(0) : '100';
-    
-    document.getElementById('history-metric-sent').textContent = totalDelivered;
-    document.getElementById('history-metric-opened').textContent = totalOpened;
-    document.getElementById('history-metric-clicked').textContent = totalClicked;
-    document.getElementById('history-metric-failed').textContent = totalFailed;
-    document.getElementById('history-metric-pending').textContent = totalPending;
-    document.getElementById('history-metric-rate').textContent = `${successRate}%`;
-    
-    if (runs.length === 0) {
-      tableBody.innerHTML = `
-        <tr>
-          <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
-            No campaign runs recorded yet.
-          </td>
-        </tr>
-      `;
-      return;
-    }
-    
-    tableBody.innerHTML = runs.map(run => {
-      const date = new Date(run.timestamp).toLocaleString();
-      return `
-        <tr>
-          <td style="font-weight: 500; color: var(--text-primary);">${date}</td>
-          <td title="${escapeHtml(run.subject)}">
-            <div style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              ${escapeHtml(run.subject) || '<span style="color: var(--text-muted); font-style: italic;">No Subject</span>'}
-            </div>
-          </td>
-          <td>${run.totalCount}</td>
-          <td><span style="color: var(--color-success); font-weight: 600;">${run.sentCount}</span></td>
-          <td><span style="color: var(--color-danger); font-weight: 600;">${run.failedCount}</span></td>
-          <td><span style="color: var(--color-primary); font-weight: 600;">${run.openedCount}</span></td>
-          <td><span style="color: var(--color-cyan); font-weight: 600;">${run.clickedCount}</span></td>
-          <td style="text-align: center;">
-            <button class="btn secondary" style="padding: 4px 8px; font-size: 0.8rem; height: 26px; display: inline-flex; align-items: center; gap: 4px;" onclick="exportHistoryRun('${run.runId}')">
-              <i data-lucide="download" style="width: 12px; height: 12px;"></i> Export Report
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join('');
-    
-    // Refresh icons inside dynamic rows
-    if (window.lucide) {
-      lucide.createIcons();
-    }
+    // Reset pagination to first page on reload
+    ghCurrentPage = 1;
+    renderGlobalHistory();
   } catch (error) {
     console.error('History fetch error:', error);
+    const tableBody = document.getElementById('history-table-body');
+    if (tableBody) {
+      tableBody.innerHTML = `
+        <tr>
+          <td colspan="9" style="text-align: center; padding: 2rem; color: var(--color-danger);">
+            Failed to load campaign runs: ${error.message}
+          </td>
+        </tr>
+      `;
+    }
+  }
+};
+
+window.renderGlobalHistory = function() {
+  const tableBody = document.getElementById('history-table-body');
+  if (!tableBody) return;
+  
+  // Filter runs by date range
+  const filteredRuns = ghAllRuns.filter(run => {
+    let runDateISO = '';
+    const match = run.runId && run.runId.match(/^run_(\d{4}-\d{2}-\d{2})/);
+    if (match) {
+      runDateISO = match[1]; // YYYY-MM-DD
+    } else {
+      try {
+        const d = new Date(run.timestamp);
+        const cy = d.getFullYear();
+        const cm = String(d.getMonth() + 1).padStart(2, '0');
+        const cd = String(d.getDate()).padStart(2, '0');
+        runDateISO = `${cy}-${cm}-${cd}`;
+      } catch (e) {
+        runDateISO = '';
+      }
+    }
+    
+    if (ghStartDate && runDateISO < ghStartDate) return false;
+    if (ghEndDate && runDateISO > ghEndDate) return false;
+    return true;
+  });
+  
+  // Update Metrics based on filtered runs
+  let totalDelivered = 0;
+  let totalOpened = 0;
+  let totalClicked = 0;
+  let totalFailed = 0;
+  let totalPending = 0;
+  
+  filteredRuns.forEach(run => {
+    totalDelivered += (run.sentCount || 0);
+    totalOpened += (run.openedCount || 0);
+    totalClicked += (run.clickedCount || 0);
+    totalFailed += (run.failedCount || 0);
+    totalPending += Math.max(0, (run.totalCount || 0) - (run.sentCount || 0) - (run.failedCount || 0));
+  });
+  
+  const divisor = totalDelivered + totalFailed;
+  const successRate = divisor > 0 ? ((totalDelivered / divisor) * 100).toFixed(0) : '100';
+  
+  const hSent = document.getElementById('history-metric-sent');
+  if (hSent) hSent.textContent = totalDelivered;
+  
+  const hOpened = document.getElementById('history-metric-opened');
+  if (hOpened) hOpened.textContent = totalOpened;
+  
+  const hClicked = document.getElementById('history-metric-clicked');
+  if (hClicked) hClicked.textContent = totalClicked;
+  
+  const hFailed = document.getElementById('history-metric-failed');
+  if (hFailed) hFailed.textContent = totalFailed;
+  
+  const hPending = document.getElementById('history-metric-pending');
+  if (hPending) hPending.textContent = totalPending;
+  
+  const hRate = document.getElementById('history-metric-rate');
+  if (hRate) hRate.textContent = `${successRate}%`;
+  
+  const totalCampaignsEl = document.getElementById('history-total-campaigns');
+  if (totalCampaignsEl) {
+    totalCampaignsEl.textContent = filteredRuns.length;
+  }
+  const totalCampaignsBadge = document.getElementById('total-campaigns');
+  if (totalCampaignsBadge) {
+    totalCampaignsBadge.textContent = filteredRuns.length;
+  }
+  
+  const totalRecords = filteredRuns.length;
+  const totalPages = Math.ceil(totalRecords / ghPageSize) || 1;
+  ghCurrentPage = Math.max(1, Math.min(ghCurrentPage, totalPages));
+  
+  const startIndex = (ghCurrentPage - 1) * ghPageSize;
+  const endIndex = Math.min(startIndex + ghPageSize, totalRecords);
+  
+  // Update pagination indicators
+  const pagStart = document.getElementById('gh-pagination-start');
+  if (pagStart) pagStart.textContent = totalRecords > 0 ? startIndex + 1 : 0;
+  
+  const pagEnd = document.getElementById('gh-pagination-end');
+  if (pagEnd) pagEnd.textContent = endIndex;
+  
+  const pagTotal = document.getElementById('gh-pagination-total');
+  if (pagTotal) pagTotal.textContent = totalRecords;
+  
+  const curPageDisplay = document.getElementById('gh-current-page-display');
+  if (curPageDisplay) curPageDisplay.textContent = `Page ${ghCurrentPage} / ${totalPages}`;
+  
+  const prevBtn = document.getElementById('gh-prev-page-btn');
+  if (prevBtn) prevBtn.disabled = (ghCurrentPage === 1);
+  
+  const nextBtn = document.getElementById('gh-next-page-btn');
+  if (nextBtn) nextBtn.disabled = (ghCurrentPage === totalPages);
+  
+  if (totalRecords === 0) {
     tableBody.innerHTML = `
       <tr>
-        <td colspan="8" style="text-align: center; padding: 2rem; color: var(--color-danger);">
-          Failed to load campaign runs: ${error.message}
+        <td colspan="9" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+          No campaign runs found for the selected criteria.
         </td>
       </tr>
     `;
+    return;
   }
+  
+  const paginated = filteredRuns.slice(startIndex, endIndex);
+  
+  tableBody.innerHTML = paginated.map(run => {
+    const runDate = new Date(run.timestamp).toLocaleString();
+    
+    // Parse campaign date from runId: format is "run_YYYY-MM-DD_..."
+    let campaignDateStr = '';
+    const runIdMatch = run.runId && run.runId.match(/^run_(\d{4}-\d{2}-\d{2})/);
+    if (runIdMatch) {
+      const [cy, cm, cd] = runIdMatch[1].split('-').map(Number);
+      campaignDateStr = `${String(cd).padStart(2,'0')}-${String(cm).padStart(2,'0')}-${cy}`;
+    }
+    
+    return `
+      <tr>
+        <td style="font-weight: 600; color: var(--color-primary); white-space: nowrap;">
+          ${campaignDateStr ? `<span style="font-family:'JetBrains Mono',monospace; font-size:0.85rem;">${campaignDateStr}</span>` : '<span style="color:var(--text-muted);">—</span>'}
+        </td>
+        <td style="font-weight: 500; color: var(--text-secondary); font-size: 0.8rem; white-space: nowrap;">${runDate}</td>
+        <td title="${escapeHtml(run.subject)}">
+          <div style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${escapeHtml(run.subject) || '<span style="color: var(--text-muted); font-style: italic;">No Subject</span>'}
+          </div>
+        </td>
+        <td style="font-weight: 600;">${run.totalCount}</td>
+        <td><span style="color: var(--color-success); font-weight: 600;">${run.sentCount}</span></td>
+        <td><span style="color: var(--color-danger); font-weight: 600;">${run.failedCount}</span></td>
+        <td><span style="color: var(--color-primary); font-weight: 600;">${run.openedCount}</span></td>
+        <td><span style="color: var(--color-cyan); font-weight: 600;">${run.clickedCount}</span></td>
+        <td style="text-align: center;">
+          <button class="btn secondary" style="padding: 4px 8px; font-size: 0.8rem; height: 26px; display: inline-flex; align-items: center; gap: 4px;" onclick="exportHistoryRun('${run.runId}')">
+            <i data-lucide="download" style="width: 12px; height: 12px;"></i> Export
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+};
+
+window.changeGHPageSize = function() {
+  const select = document.getElementById('gh-page-size-select');
+  if (select) {
+    ghPageSize = parseInt(select.value) || 25;
+    ghCurrentPage = 1;
+    renderGlobalHistory();
+  }
+};
+
+window.ghPrevPage = function() {
+  if (ghCurrentPage > 1) {
+    ghCurrentPage--;
+    renderGlobalHistory();
+  }
+};
+
+window.ghNextPage = function() {
+  const filtered = ghAllRuns.filter(run => {
+    let runDateISO = '';
+    const match = run.runId && run.runId.match(/^run_(\d{4}-\d{2}-\d{2})/);
+    if (match) {
+      runDateISO = match[1];
+    } else {
+      try {
+        const d = new Date(run.timestamp);
+        const cy = d.getFullYear();
+        const cm = String(d.getMonth() + 1).padStart(2, '0');
+        const cd = String(d.getDate()).padStart(2, '0');
+        runDateISO = `${cy}-${cm}-${cd}`;
+      } catch (e) {
+        runDateISO = '';
+      }
+    }
+    if (ghStartDate && runDateISO < ghStartDate) return false;
+    if (ghEndDate && runDateISO > ghEndDate) return false;
+    return true;
+  });
+  
+  const totalPages = Math.ceil(filtered.length / ghPageSize) || 1;
+  if (ghCurrentPage < totalPages) {
+    ghCurrentPage++;
+    renderGlobalHistory();
+  }
+};
+
+window.handleHistoryFilterChange = function() {
+  const startEl = document.getElementById('history-filter-start');
+  const endEl = document.getElementById('history-filter-end');
+  
+  ghStartDate = startEl ? startEl.value : '';
+  ghEndDate = endEl ? endEl.value : '';
+  ghCurrentPage = 1;
+  
+  renderGlobalHistory();
+};
+
+window.clearHistoryFilters = function() {
+  const startEl = document.getElementById('history-filter-start');
+  const endEl = document.getElementById('history-filter-end');
+  
+  if (startEl) startEl.value = '';
+  if (endEl) endEl.value = '';
+  
+  ghStartDate = '';
+  ghEndDate = '';
+  ghCurrentPage = 1;
+  
+  renderGlobalHistory();
 };
 
 window.loadDateHistory = async function(dateStr) {
   const tableBody = document.getElementById('date-history-table-body');
   if (!tableBody) return;
   
+  // Format for labels
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const formattedDate = `${String(d).padStart(2,'0')}-${String(m).padStart(2,'0')}-${y}`;
+  
   try {
     const res = await fetch(`/api/history?date=${dateStr}`);
     if (!res.ok) throw new Error('Failed to fetch history for date');
-    const runs = await res.json();
+    dhAllRuns = await res.json();
     
-    if (runs.length === 0) {
-      tableBody.innerHTML = `
-        <tr>
-          <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
-            No past runs recorded for this date.
-          </td>
-        </tr>
-      `;
-      return;
+    // Update sub-label count
+    const subLabel = document.getElementById('history-sub-label');
+    if (subLabel) {
+      subLabel.textContent = dhAllRuns.length === 0
+        ? 'No historical runs for this date'
+        : `${dhAllRuns.length} run${dhAllRuns.length !== 1 ? 's' : ''} recorded`;
     }
     
-    tableBody.innerHTML = runs.map(run => {
-      const date = new Date(run.timestamp).toLocaleString();
-      return `
-        <tr>
-          <td style="font-weight: 500; color: var(--text-primary);">${date}</td>
-          <td title="${escapeHtml(run.subject)}">
-            <div style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              ${escapeHtml(run.subject) || '<span style="color: var(--text-muted); font-style: italic;">No Subject</span>'}
-            </div>
-          </td>
-          <td>${run.totalCount}</td>
-          <td><span style="color: var(--color-success); font-weight: 600;">${run.sentCount}</span></td>
-          <td><span style="color: var(--color-danger); font-weight: 600;">${run.failedCount}</span></td>
-          <td><span style="color: var(--color-primary); font-weight: 600;">${run.openedCount}</span></td>
-          <td><span style="color: var(--color-cyan); font-weight: 600;">${run.clickedCount}</span></td>
-          <td style="text-align: center;">
-            <button class="btn secondary" style="padding: 4px 8px; font-size: 0.8rem; height: 26px; display: inline-flex; align-items: center; gap: 4px;" onclick="exportHistoryRun('${run.runId}')">
-              <i data-lucide="download" style="width: 12px; height: 12px;"></i> Export Report
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join('');
-    
-    if (window.lucide) {
-      lucide.createIcons();
+    // Show history aggregate when:
+    //  - viewing a past date, OR
+    //  - viewing today/future but campaign is IDLE and there are history runs
+    //    (means campaigns already finished earlier today, live metrics would show 0)
+    const shouldShowHistory = isPastDate || (dhAllRuns.length > 0 && currentStatus === 'IDLE');
+    if (shouldShowHistory) {
+      updateMetricsFromHistory(dhAllRuns);
     }
+    
+    renderDateHistory();
   } catch (error) {
     console.error('Date history fetch error:', error);
     tableBody.innerHTML = `
@@ -1385,6 +1608,124 @@ window.loadDateHistory = async function(dateStr) {
         </td>
       </tr>
     `;
+  }
+};
+
+// Aggregate all history run counts and push to the metric cards
+function updateMetricsFromHistory(runs) {
+  let totalSent    = 0;
+  let totalOpened  = 0;
+  let totalClicked = 0;
+  let totalFailed  = 0;
+  let totalCount   = 0;
+  
+  runs.forEach(run => {
+    totalSent    += (run.sentCount    || 0);
+    totalOpened  += (run.openedCount  || 0);
+    totalClicked += (run.clickedCount || 0);
+    totalFailed  += (run.failedCount  || 0);
+    totalCount   += (run.totalCount   || 0);
+  });
+  
+  const totalPending = Math.max(0, totalCount - totalSent - totalFailed);
+  const divisor = totalSent + totalFailed;
+  const successRate = divisor > 0 ? Math.round((totalSent / divisor) * 100) : 100;
+  
+  // Push totals into the live metric card elements
+  if (metricSent)     metricSent.textContent     = totalSent;
+  if (metricOpened)   metricOpened.textContent   = totalOpened;
+  if (metricClicked)  metricClicked.textContent  = totalClicked;
+  if (metricFailed)   metricFailed.textContent   = totalFailed;
+  if (metricPending)  metricPending.textContent  = totalPending;
+  if (metricRate)     metricRate.textContent     = `${successRate}%`;
+  
+  // Also update progress bar to reflect all sent / total
+  if (progressText)  progressText.textContent  = `${totalSent + totalFailed} / ${totalCount} Emails Processed`;
+  if (progressFill) {
+    const pct = totalCount > 0 ? Math.min(100, Math.round(((totalSent + totalFailed) / totalCount) * 100)) : 0;
+    progressFill.style.width = `${pct}%`;
+  }
+}
+
+function renderDateHistory() {
+  const tableBody = document.getElementById('date-history-table-body');
+  if (!tableBody) return;
+  
+  const totalRecords = dhAllRuns.length;
+  const totalPages = Math.ceil(totalRecords / dhPageSize) || 1;
+  dhCurrentPage = Math.max(1, Math.min(dhCurrentPage, totalPages));
+  
+  const startIdx = (dhCurrentPage - 1) * dhPageSize;
+  const endIdx = Math.min(startIdx + dhPageSize, totalRecords);
+  const paginated = dhAllRuns.slice(startIdx, endIdx);
+  
+  // Update pagination controls
+  document.getElementById('dh-pagination-start').textContent = totalRecords > 0 ? startIdx + 1 : 0;
+  document.getElementById('dh-pagination-end').textContent = endIdx;
+  document.getElementById('dh-pagination-total').textContent = totalRecords;
+  document.getElementById('dh-current-page-display').textContent = `Page ${dhCurrentPage} / ${totalPages}`;
+  document.getElementById('dh-prev-page-btn').disabled = (dhCurrentPage === 1);
+  document.getElementById('dh-next-page-btn').disabled = (dhCurrentPage === totalPages);
+  
+  if (totalRecords === 0) {
+    tableBody.innerHTML = `
+      <tr>
+        <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+          No past runs recorded for this date.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+  
+  tableBody.innerHTML = paginated.map(run => {
+    const date = new Date(run.timestamp).toLocaleString();
+    return `
+      <tr>
+        <td style="font-weight: 500; color: var(--text-primary);">${date}</td>
+        <td title="${escapeHtml(run.subject)}">
+          <div style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${escapeHtml(run.subject) || '<span style="color: var(--text-muted); font-style: italic;">No Subject</span>'}
+          </div>
+        </td>
+        <td>${run.totalCount}</td>
+        <td><span style="color: var(--color-success); font-weight: 600;">${run.sentCount}</span></td>
+        <td><span style="color: var(--color-danger); font-weight: 600;">${run.failedCount}</span></td>
+        <td><span style="color: var(--color-primary); font-weight: 600;">${run.openedCount}</span></td>
+        <td><span style="color: var(--color-cyan); font-weight: 600;">${run.clickedCount}</span></td>
+        <td style="text-align: center;">
+          <button class="btn secondary" style="padding: 4px 8px; font-size: 0.8rem; height: 26px; display: inline-flex; align-items: center; gap: 4px;" onclick="exportHistoryRun('${run.runId}')">
+            <i data-lucide="download" style="width: 12px; height: 12px;"></i> Export
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  
+  if (window.lucide) lucide.createIcons();
+}
+
+window.changeDHPageSize = function() {
+  const select = document.getElementById('dh-page-size-select');
+  if (select) {
+    dhPageSize = parseInt(select.value) || 5;
+    dhCurrentPage = 1;
+    renderDateHistory();
+  }
+};
+
+window.dhPrevPage = function() {
+  if (dhCurrentPage > 1) {
+    dhCurrentPage--;
+    renderDateHistory();
+  }
+};
+
+window.dhNextPage = function() {
+  const totalPages = Math.ceil(dhAllRuns.length / dhPageSize) || 1;
+  if (dhCurrentPage < totalPages) {
+    dhCurrentPage++;
+    renderDateHistory();
   }
 };
 

@@ -81,3 +81,51 @@
 [2026-05-28T10:10:04.058Z] [SUCCESS] ✓ Email successfully sent to Ashish <Sales@triolystudio.com>
 [2026-05-28T10:10:04.061Z] [INFO] Campaign run archived successfully: run_2026-05-28_15-40-04
 [2026-05-28T10:10:04.063Z] [SUCCESS] 🎉 Campaign completed! All recipients have been processed. Campaign has stopped.
+[2026-05-29T05:22:53.322Z] [INFO] Uploaded 1 recipients from "Book1 - Copy.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T05:23:07.288Z] [INFO] Resuming email campaign deployment with new pending recipients...
+[2026-05-29T05:23:07.355Z] [INFO] Sending email to vishal <vishu.vishu2009@gmail.com>...
+[2026-05-29T05:23:14.010Z] [SUCCESS] ✓ Email successfully sent to vishal <vishu.vishu2009@gmail.com>
+[2026-05-29T05:23:14.511Z] [INFO] Campaign run archived successfully: run_2026-05-29_10-53-14
+[2026-05-29T05:23:14.513Z] [SUCCESS] 🎉 Campaign completed! All recipients have been processed. Campaign has stopped.
+[2026-05-29T06:07:51.606Z] [INFO] Campaign run archived successfully: run_2026-05-29_11-37-51
+[2026-05-29T06:07:51.668Z] [INFO] Campaign recipient list cleared.
+[2026-05-29T06:08:06.687Z] [INFO] Uploaded 3 recipients from "Book1.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:08:26.153Z] [INFO] Uploaded 1 recipients from "Book1 - Copy.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:09:29.611Z] [INFO] Campaign recipient list cleared.
+[2026-05-29T06:13:40.818Z] [INFO] Uploaded 1 recipients from "Book1 - Copy.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:14:00.703Z] [INFO] Uploaded 2 recipients from "Book1.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:23:31.710Z] [INFO] Campaign recipient list cleared.
+[2026-05-29T06:23:37.298Z] [INFO] Uploaded 1 recipients from "Book1 - Copy.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:23:47.516Z] [INFO] Uploaded 2 recipients from "Book1.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:31:47.251Z] [INFO] Campaign recipient list cleared.
+[2026-05-29T06:32:09.456Z] [INFO] Uploaded 1 recipients from "Book1 - Copy.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:33:33.590Z] [INFO] Uploaded 1 recipients from "Book1 - Copy.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:33:45.123Z] [INFO] Uploaded 2 recipients from "Book1.xlsx" (Auto-detected email column: "Email id", name column: "client name").
+[2026-05-29T06:55:36.950Z] [INFO] Campaign recipient list cleared.
+[2026-05-29T07:42:56.101Z] [INFO] Uploaded 1 recipients (Auto-detected email: "Email id", name: "client name").
+[2026-05-29T07:44:20.048Z] [INFO] Uploaded 2 recipients (Auto-detected email: "Email id", name: "client name").
+[2026-05-29T07:51:15.996Z] [INFO] Identified and marked 2 duplicate email(s) as DELETED.
+[2026-05-29T07:51:16.171Z] [INFO] Uploaded 2 recipients (Auto-detected email: "Email id", name: "client name").
+[2026-05-29T07:54:09.527Z] [INFO] Campaign draft and schedule settings saved.
+[2026-05-29T09:32:54.296Z] [INFO] Identified and marked 1 duplicate email(s) as DELETED.
+[2026-05-29T09:32:54.500Z] [INFO] Uploaded 2 recipients (Auto-detected email: "Email id", name: "client name").
+[2026-05-29T09:33:17.323Z] [INFO] Campaign draft and schedule settings saved.
+[2026-05-29T09:54:50.523Z] [INFO] Campaign recipient list cleared.
+[2026-05-29T09:55:18.938Z] [INFO] Uploaded 2 recipients (Auto-detected email: "Email id", name: "client name").
+[2026-05-29T09:55:47.945Z] [INFO] Resuming email campaign deployment with new pending recipients...
+[2026-05-29T09:55:51.145Z] [INFO] Sending email to Vinayak <vinayakvkamath98@gmail.com>...
+[2026-05-29T09:55:53.246Z] [INFO] Sending email to Raju <Bangaloretalk.official@gmail.com>...
+[2026-05-29T09:55:56.291Z] [INFO] Campaign run archived successfully: run_2026-05-29_2026-05-29_15-25-56
+[2026-05-29T09:55:56.455Z] [SUCCESS] 🎉 Campaign completed! All recipients have been processed. Campaign has stopped.
+[2026-05-29T09:55:57.599Z] [SUCCESS] ✓ Email successfully sent to Vinayak <vinayakvkamath98@gmail.com>
+[2026-05-29T09:55:58.175Z] [SUCCESS] ✓ Email successfully sent to Raju <Bangaloretalk.official@gmail.com>
+[2026-05-29T09:59:14.358Z] [INFO] Campaign settings and recipient queue metrics have been reset.
+[2026-05-29T09:59:30.209Z] [INFO] Campaign settings and recipient queue metrics have been reset.
+[2026-05-29T10:00:10.729Z] [INFO] Resuming email campaign deployment with new pending recipients...
+[2026-05-29T10:00:12.029Z] [INFO] Sending email to Vinayak <vinayakvkamath98@gmail.com>...
+[2026-05-29T10:00:15.029Z] [INFO] Sending email to Raju <Bangaloretalk.official@gmail.com>...
+[2026-05-29T10:00:16.814Z] [SUCCESS] ✓ Email successfully sent to Vinayak <vinayakvkamath98@gmail.com>
+[2026-05-29T10:00:19.803Z] [SUCCESS] ✓ Email successfully sent to Raju <Bangaloretalk.official@gmail.com>
+[2026-05-29T10:00:21.064Z] [INFO] Campaign settings and recipient queue metrics have been reset.
+[2026-05-29T10:00:29.295Z] [INFO] Campaign settings and recipient queue metrics have been reset.
+[2026-05-29T10:00:33.870Z] [INFO] Campaign recipient list cleared.

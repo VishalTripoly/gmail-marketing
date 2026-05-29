@@ -516,18 +516,65 @@ loadDatabase();
 // API Route: Get Scheduled Campaigns List (for calendar indicators)
 app.get('/api/campaigns/list', (req, res) => {
   const list = {};
+
+  // Step 1: Aggregate sentCount from archived history run files per date
+  const historySentByDate = {};
+  try {
+    if (fs.existsSync(HISTORY_DIR)) {
+      const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
+      files.forEach(file => {
+        // filename format: run_YYYY-MM-DD_YYYY-MM-DD_HH-MM-SS.json
+        const match = file.match(/^run_(\d{4}-\d{2}-\d{2})_/);
+        if (match) {
+          const date = match[1];
+          try {
+            const content = fs.readFileSync(path.join(HISTORY_DIR, file), 'utf8');
+            const run = JSON.parse(content);
+            if (!historySentByDate[date]) historySentByDate[date] = { sentCount: 0, totalCount: 0 };
+            historySentByDate[date].sentCount  += (run.sentCount  || 0);
+            historySentByDate[date].totalCount += (run.totalCount || 0);
+          } catch (e) { /* skip bad files */ }
+        }
+      });
+    }
+  } catch (e) { /* ignore history scan errors */ }
+
+  // Step 2: Build list from live campaigns, supplementing with history data
   if (db.campaigns) {
     Object.keys(db.campaigns).forEach(date => {
       const camp = db.campaigns[date];
-      if (camp.recipients && camp.recipients.length > 0) {
+      const hist = historySentByDate[date] || {};
+      const hasData = (camp.recipients && camp.recipients.length > 0) || hist.sentCount > 0;
+
+      if (hasData) {
+        // Prefer history sentCount for accuracy; fall back to live campaign
+        const sentCount  = hist.sentCount  || camp.sentCount  || 0;
+        const totalCount = hist.totalCount || camp.totalCount || (camp.recipients ? camp.recipients.length : 0);
+
         list[date] = {
-          status: camp.status,
-          subject: camp.subject,
-          count: camp.recipients.length
+          status:     camp.status,
+          subject:    camp.subject,
+          count:      camp.recipients ? camp.recipients.length : totalCount,
+          sentCount,
+          totalCount
         };
       }
     });
   }
+
+  // Step 3: Also add dates that only appear in history (no live campaign entry)
+  Object.keys(historySentByDate).forEach(date => {
+    if (!list[date] && historySentByDate[date].sentCount > 0) {
+      list[date] = {
+        status:     'completed',
+        subject:    '',
+        count:      historySentByDate[date].totalCount,
+        sentCount:  historySentByDate[date].sentCount,
+        totalCount: historySentByDate[date].totalCount
+      };
+    }
+  });
+
   res.json(list);
 });
 
