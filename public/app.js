@@ -231,6 +231,7 @@ window.loadCampaignForDate = function(dateStr) {
   subjectInput.value = '';
   bodyInput.value = '';
   
+  loadDateHistory(dateStr);
   fetchStatus();
 };
 
@@ -1328,17 +1329,84 @@ window.loadHistory = async function() {
   }
 };
 
+window.loadDateHistory = async function(dateStr) {
+  const tableBody = document.getElementById('date-history-table-body');
+  if (!tableBody) return;
+  
+  try {
+    const res = await fetch(`/api/history?date=${dateStr}`);
+    if (!res.ok) throw new Error('Failed to fetch history for date');
+    const runs = await res.json();
+    
+    if (runs.length === 0) {
+      tableBody.innerHTML = `
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+            No past runs recorded for this date.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+    
+    tableBody.innerHTML = runs.map(run => {
+      const date = new Date(run.timestamp).toLocaleString();
+      return `
+        <tr>
+          <td style="font-weight: 500; color: var(--text-primary);">${date}</td>
+          <td title="${escapeHtml(run.subject)}">
+            <div style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${escapeHtml(run.subject) || '<span style="color: var(--text-muted); font-style: italic;">No Subject</span>'}
+            </div>
+          </td>
+          <td>${run.totalCount}</td>
+          <td><span style="color: var(--color-success); font-weight: 600;">${run.sentCount}</span></td>
+          <td><span style="color: var(--color-danger); font-weight: 600;">${run.failedCount}</span></td>
+          <td><span style="color: var(--color-primary); font-weight: 600;">${run.openedCount}</span></td>
+          <td><span style="color: var(--color-cyan); font-weight: 600;">${run.clickedCount}</span></td>
+          <td style="text-align: center;">
+            <button class="btn secondary" style="padding: 4px 8px; font-size: 0.8rem; height: 26px; display: inline-flex; align-items: center; gap: 4px;" onclick="exportHistoryRun('${run.runId}')">
+              <i data-lucide="download" style="width: 12px; height: 12px;"></i> Export Report
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+    
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  } catch (error) {
+    console.error('Date history fetch error:', error);
+    tableBody.innerHTML = `
+      <tr>
+        <td colspan="8" style="text-align: center; padding: 2rem; color: var(--color-danger);">
+          Failed to load campaign runs for this date: ${error.message}
+        </td>
+      </tr>
+    `;
+  }
+};
+
 // Initial System Boots
 (async () => {
   await fetchStatus();
-  if (document.getElementById('tab-composer').classList.contains('active') && !selectedDate) {
-    await fetchCalendarCampaigns();
+  if (document.getElementById('tab-composer').classList.contains('active')) {
+    if (!selectedDate) {
+      await fetchCalendarCampaigns();
+    } else {
+      await loadDateHistory(selectedDate);
+    }
   }
   // Set up periodic polling refresh
   setInterval(async () => {
     await fetchStatus();
-    if (document.getElementById('tab-composer').classList.contains('active') && !selectedDate) {
-      await fetchCalendarCampaigns();
+    if (document.getElementById('tab-composer').classList.contains('active')) {
+      if (!selectedDate) {
+        await fetchCalendarCampaigns();
+      } else {
+        await loadDateHistory(selectedDate);
+      }
     }
   }, 3000);
 })();

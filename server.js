@@ -894,13 +894,16 @@ app.get('/api/campaign/export', (req, res) => {
   }
 });
 
-// API Route: List All History Runs
 app.get('/api/history', (req, res) => {
   try {
     if (!fs.existsSync(HISTORY_DIR)) {
       return res.json([]);
     }
-    const files = fs.readdirSync(HISTORY_DIR).filter(file => file.endsWith('.json'));
+    const { date } = req.query;
+    let files = fs.readdirSync(HISTORY_DIR).filter(file => file.endsWith('.json'));
+    if (date) {
+      files = files.filter(file => file.startsWith(`run_${date}_`));
+    }
     const historyList = [];
     
     for (const file of files) {

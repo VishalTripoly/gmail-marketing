@@ -421,6 +421,40 @@
                   <div class="log-line system">[SYSTEM] Welcome to Gmail Marketing Console. Upload a spreadsheet to start.</div>
                 </div>
               </div>
+          </div>
+
+          <!-- Bottom Row 3: Date Campaign History Runs (Full Width) -->
+          <div class="date-history-panel" style="margin-top: 1.5rem;">
+            <div class="card glass" style="margin-bottom: 0;">
+              <div class="card-header">
+                <div class="header-icon"><i data-lucide="history"></i></div>
+                <h3>Past Runs for this Calendar Date</h3>
+              </div>
+              <div class="card-body">
+                <div class="table-container">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date & Time</th>
+                        <th>Subject</th>
+                        <th>Total</th>
+                        <th>Sent</th>
+                        <th>Failed</th>
+                        <th>Opened</th>
+                        <th>Clicked</th>
+                        <th width="150" style="text-align: center;">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="date-history-table-body">
+                      <tr>
+                        <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                          No past runs recorded for this date.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
 
