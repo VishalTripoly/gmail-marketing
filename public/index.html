@@ -43,407 +43,629 @@
       </div>
     </header>
 
-    <!-- Dashboard Content Grid -->
-    <main class="dashboard-grid">
-      
-      <!-- Left Column: Controls & Configuration -->
-      <section class="control-panel">
+    <!-- Full-Width Navigation Tabs -->
+    <nav class="panel-tabs full-width">
+      <button class="tab-btn active" onclick="switchTab('tab-composer')">
+        <i data-lucide="pen-tool"></i> Compose Campaign
+      </button>
+      <button class="tab-btn" onclick="switchTab('tab-setup')">
+        <i data-lucide="settings"></i> SMTP & Settings
+      </button>
+      <button class="tab-btn" onclick="switchTab('tab-history'); loadHistory();">
+        <i data-lucide="history"></i> Campaign History
+      </button>
+    </nav>
+
+    <!-- Main Content Pages -->
+    <main class="main-pages">
+
+      <!-- TAB: Compose Campaign (Dashboard Page) -->
+      <div id="tab-composer" class="tab-content active">
         
-        <!-- Tab Navigation for settings and composer -->
-        <div class="panel-tabs">
-          <button class="tab-btn active" onclick="switchTab('tab-composer')">
-            <i data-lucide="pen-tool"></i> Compose Campaign
-          </button>
-          <button class="tab-btn" onclick="switchTab('tab-setup')">
-            <i data-lucide="settings"></i> SMTP & Settings
-          </button>
-          <button class="tab-btn" onclick="switchTab('tab-history'); loadHistory();">
-            <i data-lucide="history"></i> Campaign History
-          </button>
+        <!-- SUB-VIEW 1: Monthly Calendar Grid -->
+        <div id="composer-calendar-view" class="tab-subview">
+          <div class="card glass calendar-card">
+            <div class="card-header calendar-header" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+              <div class="calendar-nav" style="display: flex; align-items: center; gap: 1rem;">
+                <button class="btn secondary" onclick="prevMonth()" style="padding: 6px 12px; height: 32px;"><i data-lucide="chevron-left" style="width: 16px; height: 16px;"></i></button>
+                <h3 id="calendar-month-year" style="font-size: 1.15rem; font-weight: 700; width: 140px; text-align: center; color: #fff;">June 2026</h3>
+                <button class="btn secondary" onclick="nextMonth()" style="padding: 6px 12px; height: 32px;"><i data-lucide="chevron-right" style="width: 16px; height: 16px;"></i></button>
+              </div>
+              <p class="calendar-subtext" style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">Select a date below to schedule, compose, or view campaign details.</p>
+            </div>
+            <div class="card-body">
+              <div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-weight: 600; font-size: 0.85rem; color: var(--text-muted); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);">
+                <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+              </div>
+              <div id="calendar-days-grid" class="calendar-days-grid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; margin-top: 0.75rem;">
+                <!-- Dynamically populated via JS -->
+              </div>
+            </div>
+          </div>
         </div>
 
-        <!-- TAB: Composer & List Upload -->
-        <div id="tab-composer" class="tab-content active">
+        <!-- SUB-VIEW 2: Date-wise Campaign Dashboard -->
+        <div id="composer-dashboard-view" class="tab-subview" style="display: none;">
           
-          <!-- Step 1: Upload Recipients List -->
-          <div class="card glass">
-            <div class="card-header">
-              <div class="header-icon"><i data-lucide="users"></i></div>
-              <h3>1. Recipients List</h3>
-            </div>
-            
-            <div class="card-body">
-              <!-- Drag and drop zone -->
-              <div id="drop-zone" class="drop-zone">
-                <i data-lucide="upload-cloud" class="upload-icon"></i>
-                <p class="drop-text">Drag & drop your CSV or Excel file here</p>
-                <p class="drop-subtext">Supports .csv, .xlsx, .xls</p>
-                <span class="file-select-btn">Choose File</span>
-                <input type="file" id="file-input" accept=".csv, .xlsx, .xls" style="display: none;">
+          <!-- Back navigation header -->
+          <div class="dashboard-back-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+            <button class="btn secondary" onclick="backToCalendar()" style="display: flex; align-items: center; gap: 6px; padding: 8px 16px;">
+              <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i> Back to Calendar
+            </button>
+            <h2 id="active-campaign-date-label" style="font-size: 1.25rem; font-weight: 600; color: #fff; background: linear-gradient(135deg, var(--color-primary), var(--color-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Campaign for: 2026-06-01</h2>
+          </div>
+
+          <!-- Live Status Metrics Summary Row (Spans full width) -->
+          <div class="metrics-grid">
+            <div class="metric-card glass sent">
+              <div class="metric-icon"><i data-lucide="check-circle-2"></i></div>
+              <div class="metric-data">
+                <span class="label">Delivered</span>
+                <h2 id="metric-sent">0</h2>
               </div>
-              
-              <!-- Selected File Status Info -->
-              <div id="file-info" class="file-info-box" style="display: none;">
-                <div class="file-details">
-                  <i data-lucide="file-spreadsheet" class="file-icon"></i>
-                  <div>
-                    <h5 id="file-name">recipients.xlsx</h5>
-                    <p id="file-size">45 KB</p>
+            </div>
+
+            <div class="metric-card glass opened">
+              <div class="metric-icon"><i data-lucide="eye"></i></div>
+              <div class="metric-data">
+                <span class="label">Opened</span>
+                <h2 id="metric-opened">0</h2>
+              </div>
+            </div>
+
+            <div class="metric-card glass clicked">
+              <div class="metric-icon"><i data-lucide="mouse-pointer-click"></i></div>
+              <div class="metric-data">
+                <span class="label">Clicked</span>
+                <h2 id="metric-clicked">0</h2>
+              </div>
+            </div>
+
+            <div class="metric-card glass failed">
+              <div class="metric-icon"><i data-lucide="alert-triangle"></i></div>
+              <div class="metric-data">
+                <span class="label">Failed</span>
+                <h2 id="metric-failed">0</h2>
+              </div>
+            </div>
+
+            <div class="metric-card glass pending">
+              <div class="metric-icon"><i data-lucide="clock"></i></div>
+              <div class="metric-data">
+                <span class="label">Pending</span>
+                <h2 id="metric-pending">0</h2>
+              </div>
+            </div>
+
+            <div class="metric-card glass rate">
+              <div class="metric-icon"><i data-lucide="percent"></i></div>
+              <div class="metric-data">
+                <span class="label">Success Rate</span>
+                <h2 id="metric-rate">100%</h2>
+              </div>
+            </div>
+          </div>
+
+          <!-- Global Campaign Progress Section (Spans full width) -->
+          <div class="card glass progress-card">
+            <div class="progress-info">
+              <span class="progress-title">Campaign Send Progress</span>
+              <span id="progress-text">0 / 0 Emails Sent</span>
+            </div>
+            <div class="progress-bar-container">
+              <div id="progress-fill" class="progress-bar-fill" style="width: 0%"></div>
+            </div>
+            <!-- Next scheduled email dispatcher card -->
+            <div id="countdown-card" class="countdown-card" style="display: none;">
+              <i data-lucide="loader" class="spin-icon"></i>
+              <span id="countdown-text">Preparing next delivery...</span>
+            </div>
+          </div>
+
+          <!-- Dashboard Split Row: Composer (Left) & Schedule (Right) -->
+          <div class="composer-console-grid">
+            
+            <!-- Left Column: Step 1 & Step 2 -->
+            <div class="composer-section">
+              <!-- Step 1: Upload Recipients List -->
+              <div class="card glass">
+                <div class="card-header">
+                  <div class="header-icon"><i data-lucide="users"></i></div>
+                  <h3>1. Recipients List</h3>
+                </div>
+                
+                <div class="card-body">
+                  <div id="drop-zone" class="drop-zone">
+                    <i data-lucide="upload-cloud" class="upload-icon"></i>
+                    <p class="drop-text">Drag & drop your CSV or Excel file here</p>
+                    <p class="drop-subtext">Supports .csv, .xlsx, .xls</p>
+                    <span class="file-select-btn">Choose File</span>
+                    <input type="file" id="file-input" accept=".csv, .xlsx, .xls" style="display: none;">
+                  </div>
+                  
+                  <div id="file-info" class="file-info-box" style="display: none;">
+                    <div class="file-details">
+                      <i data-lucide="file-spreadsheet" class="file-icon"></i>
+                      <div>
+                        <h5 id="file-name">recipients.xlsx</h5>
+                        <p id="file-size">45 KB</p>
+                      </div>
+                    </div>
+                    <button id="remove-file-btn" class="icon-btn danger" title="Remove sheet">
+                      <i data-lucide="trash-2"></i>
+                    </button>
                   </div>
                 </div>
-                <button id="remove-file-btn" class="icon-btn danger" title="Remove sheet">
-                  <i data-lucide="trash-2"></i>
-                </button>
+              </div>
+
+              <!-- Step 2: Campaign Email Details -->
+              <div class="card glass composer-card" style="margin-bottom: 0;">
+                <div class="card-header">
+                  <div class="header-icon"><i data-lucide="edit-3"></i></div>
+                  <h3>2. Mail Content</h3>
+                </div>
+                
+                <div class="card-body">
+                  <div class="placeholder-helper">
+                    <span>Insert Placeholders:</span>
+                    <div class="placeholder-tags">
+                      <button type="button" class="tag-btn" onclick="insertPlaceholder('Name')">{{Name}}</button>
+                      <button type="button" class="tag-btn" onclick="insertPlaceholder('Email')">{{Email}}</button>
+                      <span class="tag-tooltip" title="You can also use double curly braces around any column header from your uploaded sheet, e.g. {{Company Name}}"><i data-lucide="help-circle"></i></span>
+                    </div>
+                  </div>
+
+                  <div class="input-group">
+                    <label for="email-subject">Subject</label>
+                    <input type="text" id="email-subject" placeholder="E.g., Welcome to the family, {{Name}}!" required>
+                  </div>
+
+                  <div class="input-group">
+                    <div class="label-row">
+                      <label for="email-body">Email Body (HTML supported)</label>
+                      <span id="rich-text-tip" class="subtext">Use HTML tags for formatting if desired</span>
+                    </div>
+                    <textarea id="email-body" rows="10" placeholder="Hello {{Name}},\n\nWe are excited to share some updates with you...\n\nBest regards,\nMarketing Team" required></textarea>
+                  </div>
+
+                  <div class="campaign-controls">
+                    <button id="save-draft-btn" class="btn secondary">
+                      <i data-lucide="save"></i> Save Draft
+                    </button>
+                    <button id="start-btn" class="btn primary-gradient">
+                      <i data-lucide="play"></i> Start Sending
+                    </button>
+                    <button id="pause-btn" class="btn warning" disabled>
+                      <i data-lucide="pause"></i> Pause
+                    </button>
+                    <button id="reset-btn" class="btn danger" title="Reset all progress">
+                      <i data-lucide="refresh-cw"></i> Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Right Column: Campaign Schedule & Sending Windows -->
+            <div class="console-section" style="display: flex; flex-direction: column;">
+              <div class="card glass" style="margin-bottom: 0; flex-grow: 1;">
+                <div class="card-header">
+                  <div class="header-icon"><i data-lucide="calendar-clock"></i></div>
+                  <h3>Campaign Schedule & Sending Windows</h3>
+                </div>
+                
+                <div class="card-body">
+                  <div class="input-group" style="flex-direction: row; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+                    <label for="schedule-enabled" style="margin-bottom: 0; cursor: pointer;">Enable Calendar Scheduling</label>
+                    <label class="switch-toggle">
+                      <input type="checkbox" id="schedule-enabled">
+                      <span class="switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="input-group">
+                    <label for="schedule-time">Campaign Start Time (on selected date)</label>
+                    <input type="time" id="schedule-time" value="09:00">
+                  </div>
+
+                  <hr class="card-divider">
+
+                  <div class="modal-grid-2">
+                    <div class="input-group">
+                      <label for="schedule-allowed-start">Daily Window Start</label>
+                      <input type="time" id="schedule-allowed-start" value="09:00">
+                    </div>
+                    <div class="input-group">
+                      <label for="schedule-allowed-end">Daily Window End</label>
+                      <input type="time" id="schedule-allowed-end" value="18:00">
+                    </div>
+                  </div>
+
+                  <hr class="card-divider">
+
+                  <div class="input-group" style="margin-bottom: 0;">
+                    <label style="margin-bottom: 0.5rem;">Allowed Sending Days</label>
+                    <div class="days-selector">
+                      <label class="day-checkbox">
+                        <input type="checkbox" name="schedule-day" value="1" checked>
+                        <span>Mon</span>
+                      </label>
+                      <label class="day-checkbox">
+                        <input type="checkbox" name="schedule-day" value="2" checked>
+                        <span>Tue</span>
+                      </label>
+                      <label class="day-checkbox">
+                        <input type="checkbox" name="schedule-day" value="3" checked>
+                        <span>Wed</span>
+                      </label>
+                      <label class="day-checkbox">
+                        <input type="checkbox" name="schedule-day" value="4" checked>
+                        <span>Thu</span>
+                      </label>
+                      <label class="day-checkbox">
+                        <input type="checkbox" name="schedule-day" value="5" checked>
+                        <span>Fri</span>
+                      </label>
+                      <label class="day-checkbox">
+                        <input type="checkbox" name="schedule-day" value="6">
+                        <span>Sat</span>
+                      </label>
+                      <label class="day-checkbox">
+                        <input type="checkbox" name="schedule-day" value="0">
+                        <span>Sun</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
+
           </div>
 
-          <!-- Step 2: Campaign Email Details -->
-          <div class="card glass composer-card">
-            <div class="card-header">
-              <div class="header-icon"><i data-lucide="edit-3"></i></div>
-              <h3>2. Mail Content</h3>
-            </div>
-            
-            <div class="card-body">
-              <!-- Dynamic placeholders badge list -->
-              <div class="placeholder-helper">
-                <span>Insert Placeholders:</span>
-                <div class="placeholder-tags">
-                  <button type="button" class="tag-btn" onclick="insertPlaceholder('Name')">{{Name}}</button>
-                  <button type="button" class="tag-btn" onclick="insertPlaceholder('Email')">{{Email}}</button>
-                  <span class="tag-tooltip" title="You can also use double curly braces around any column header from your uploaded sheet, e.g. {{Company Name}}"><i data-lucide="help-circle"></i></span>
-                </div>
-              </div>
-
-              <!-- Email Subject -->
-              <div class="input-group">
-                <label for="email-subject">Subject</label>
-                <input type="text" id="email-subject" placeholder="E.g., Welcome to the family, {{Name}}!" required>
-              </div>
-
-              <!-- Email Body (Text or simple HTML) -->
-              <div class="input-group">
-                <div class="label-row">
-                  <label for="email-body">Email Body (HTML supported)</label>
-                  <span id="rich-text-tip" class="subtext">Use HTML tags for formatting if desired</span>
-                </div>
-                <textarea id="email-body" rows="10" placeholder="Hello {{Name}},\n\nWe are excited to share some updates with you...\n\nBest regards,\nMarketing Team" required></textarea>
-              </div>
-
-              <!-- Run Control buttons -->
-              <div class="campaign-controls">
-                <button id="start-btn" class="btn primary-gradient">
-                  <i data-lucide="play"></i> Start Sending
-                </button>
-                <button id="pause-btn" class="btn warning" disabled>
-                  <i data-lucide="pause"></i> Pause
-                </button>
-                <button id="reset-btn" class="btn danger" title="Reset all progress">
-                  <i data-lucide="refresh-cw"></i> Reset
-                </button>
-              </div>
-
-            </div>
-          </div>
-
-        </div>
-
-        <!-- TAB: SMTP Server Setup & Sending Intervals -->
-        <div id="tab-setup" class="tab-content">
-          
-          <!-- SMTP Configuration Credentials Card -->
-          <div class="card glass">
-            <div class="card-header">
-              <div class="header-icon"><i data-lucide="key-round"></i></div>
-              <h3>Gmail SMTP Config</h3>
-            </div>
-            
-            <div class="card-body">
-              <div class="alert info">
-                <i data-lucide="info" class="alert-icon"></i>
-                <div class="alert-content">
-                  <h5>Gmail Setup Required</h5>
-                  <p>Gmail SMTP requires enabling **2-Step Verification** on your Google account and creating a 16-character **App Password** under Security Settings. Do not enter your main Google password.</p>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label for="smtp-user">Gmail Address</label>
-                <input type="email" id="smtp-user" placeholder="yourname@gmail.com" required>
-              </div>
-
-              <div class="input-group">
-                <label for="smtp-pass">Gmail App Password</label>
-                <div class="password-input-wrapper">
-                  <input type="password" id="smtp-pass" placeholder="•••• •••• •••• ••••" required>
-                  <button type="button" id="toggle-password" class="password-toggle">
-                    <i data-lucide="eye"></i>
+          <!-- Bottom Row: Detailed Recipients Status Table Grid -->
+          <div class="queue-panel" style="margin-top: 1.5rem;">
+            <div class="card glass" style="margin-bottom: 0;">
+              <div class="card-header table-header">
+                <div class="table-title" style="display: flex; align-items: center; gap: 1rem;">
+                  <div class="header-icon"><i data-lucide="list-todo"></i></div>
+                  <h3>Recipient Queue Details</h3>
+                  <button id="export-current-btn" class="btn secondary" style="padding: 6px 12px; font-size: 0.85rem; height: 32px; display: flex; align-items: center; gap: 4px;" title="Export current campaign data as CSV" onclick="exportCurrentCampaign()">
+                    <i data-lucide="download" style="width: 14px; height: 14px;"></i> Export CSV
+                  </button>
+                  <button id="clear-queue-btn" class="btn danger" style="padding: 6px 12px; font-size: 0.85rem; height: 32px; display: flex; align-items: center; gap: 4px;" title="Wipe recipient list queue from database" onclick="clearCampaignQueue()">
+                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Clear Queue
                   </button>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Dispatch Intervals Card -->
-          <div class="card glass">
-            <div class="card-header">
-              <div class="header-icon"><i data-lucide="timer"></i></div>
-              <h3>Sending & Tracking Settings</h3>
-            </div>
-            
-            <div class="card-body">
-              <!-- Range slider for intervals -->
-              <div class="input-group">
-                <div class="label-row">
-                  <label for="interval-minutes">Sending Interval</label>
-                  <span id="interval-readout" class="badge">Every 3.0 mins</span>
-                </div>
-                <input type="range" id="interval-minutes" min="0.05" max="15" step="0.05" value="3">
-                <div class="range-labels">
-                  <span>Fast Test (3s)</span>
-                  <span>1 min</span>
-                  <span>5 mins</span>
-                  <span>10 mins</span>
-                  <span>15 mins</span>
+                <div class="table-actions">
+                  <div class="filter-group">
+                    <button class="filter-btn active" onclick="filterQueue('all')">All</button>
+                    <button class="filter-btn" onclick="filterQueue('pending')">Pending</button>
+                    <button class="filter-btn" onclick="filterQueue('sent')">Sent</button>
+                    <button class="filter-btn" onclick="filterQueue('failed')">Failed</button>
+                  </div>
+                  <div class="search-wrapper">
+                    <i data-lucide="search" class="search-icon"></i>
+                    <input type="text" id="queue-search" placeholder="Search by name or email..." oninput="handleSearch()">
+                  </div>
                 </div>
               </div>
-
-              <hr class="card-divider">
-
-              <!-- Expose Port / Tracking setup -->
-              <div class="input-group">
-                <label for="tracking-url">Public Tracking Base URL (Optional)</label>
-                <input type="url" id="tracking-url" placeholder="E.g., https://xxxx.ngrok-free.app">
-                <span class="subtext" style="font-size: 0.75rem; color: var(--text-dark); margin-top: 0.2rem; display: block;">
-                  Expose port 3000 (e.g. run <code>ngrok http 3000</code>) and enter the public URL here to enable email open and link click tracking. Leave empty to disable.
-                </span>
-              </div>
-
-              <div class="alert info" style="margin-top: 1rem; margin-bottom: 0.5rem; background: rgba(168, 85, 247, 0.05); border-color: rgba(168, 85, 247, 0.15); color: #e9d5ff;">
-                <i data-lucide="globe" class="alert-icon" style="color: var(--color-secondary); margin-top: 2px;"></i>
-                <div class="alert-content">
-                  <h5 style="color: #f3e8ff;">Tracking with Tunneling</h5>
-                  <p style="color: #d8b4fe;">Recipient email clients cannot resolve links on <i>localhost</i>. To track opens and clicks, you must use a public URL. A free tunnel link from <b>ngrok</b> works perfectly for local testing.</p>
-                </div>
-              </div>
-
-              <hr class="card-divider">
-
-              <!-- Connections Testing Area -->
-              <div class="input-group">
-                <label for="test-email-target">Test Target Email</label>
-                <input type="email" id="test-email-target" placeholder="E.g., yourname@gmail.com">
-              </div>
-
-              <button id="test-connection-btn" class="btn secondary">
-                <i data-lucide="send"></i> Test Configuration
-              </button>
               
-              <div id="test-connection-result" class="result-message" style="display: none;"></div>
+              <div class="card-body table-body">
+                <div class="table-container">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th width="60">Index</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Company</th>
+                        <th>City</th>
+                        <th>Client Type</th>
+                        <th width="120">Status</th>
+                        <th width="160">Open Tracker</th>
+                        <th width="230">Link Clicks</th>
+                        <th>Date of Campaign</th>
+                        <th>Error Log Details</th>
+                      </tr>
+                    </thead>
+                    <tbody id="queue-tbody">
+                      <tr>
+                        <td colspan="11" class="table-empty">
+                          <i data-lucide="users-2"></i>
+                          <p>No recipient list loaded yet. Upload your Excel/CSV sheet from the Compose tab.</p>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                
+                <!-- Pagination Controls -->
+                <div class="table-pagination" style="display: flex; align-items: center; justify-content: space-between; padding: 1rem 0.5rem 0.25rem 0.5rem; border-top: 1px solid var(--border-color); margin-top: 0.5rem; flex-wrap: wrap; gap: 1rem;">
+                  <div class="pagination-info" style="font-size: 0.85rem; color: var(--text-muted);">
+                    Showing <span id="pagination-start">0</span> to <span id="pagination-end">0</span> of <span id="pagination-total">0</span> entries
+                  </div>
+                  <div class="pagination-controls" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <div class="page-size-selector" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+                      <span>Show:</span>
+                      <select id="page-size-select" onchange="changePageSize()" style="width: auto; padding: 0.3rem 1.8rem 0.3rem 0.6rem; font-size: 0.8rem; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; color: #fff;">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </div>
+                    <div class="pagination-buttons" style="display: flex; gap: 0.35rem;">
+                      <button id="prev-page-btn" class="btn secondary" onclick="prevPage()" style="padding: 4px 10px; height: 30px; font-size: 0.8rem;"><i data-lucide="chevron-left" style="width: 14px; height: 14px;"></i></button>
+                      <span id="current-page-display" style="display: inline-flex; align-items: center; justify-content: center; min-width: 60px; font-size: 0.85rem; font-weight: 600; color: #fff; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 6px; padding: 0 8px;">Page 1 / 1</span>
+                      <button id="next-page-btn" class="btn secondary" onclick="nextPage()" style="padding: 4px 10px; height: 30px; font-size: 0.8rem;"><i data-lucide="chevron-right" style="width: 14px; height: 14px;"></i></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <!-- Configuration actions -->
-          <div class="settings-actions">
-            <button id="save-settings-btn" class="btn primary-gradient">
-              <i data-lucide="save"></i> Save Settings
-            </button>
+          <!-- Bottom Row 2: Activity Console Logs Card (Full Width) -->
+          <div class="console-panel" style="margin-top: 1.5rem;">
+            <div class="card glass console-card" style="margin-bottom: 0;">
+              <div class="card-header">
+                <div class="header-icon"><i data-lucide="terminal"></i></div>
+                <h3>Activity Console Logs</h3>
+                <button id="clear-logs-btn" class="icon-btn sm" title="Clear console view">
+                  <i data-lucide="ban"></i>
+                </button>
+              </div>
+              <div class="card-body" style="padding: 0.75rem;">
+                <div id="console-terminal" class="console-terminal" style="min-height: 250px; max-height: 400px;">
+                  <div class="log-line system">[SYSTEM] Welcome to Gmail Marketing Console. Upload a spreadsheet to start.</div>
+                </div>
+              </div>
+            </div>
           </div>
 
         </div>
 
-      </section>
+      </div>
 
-      <!-- Right Column: Monitoring Metrics, Logs, Live Status -->
-      <section class="monitoring-panel">
-        
-        <!-- Live Status Metrics Summary Row -->
-        <div class="metrics-grid">
+      <!-- TAB: SMTP Server Setup & Sending Intervals (Settings Page) -->
+      <div id="tab-setup" class="tab-content">
+        <div class="settings-grid">
           
+          <!-- Settings Left Column -->
+          <div class="settings-column">
+            <!-- SMTP Configuration Credentials Card -->
+            <div class="card glass" style="margin-bottom: 0; height: 100%;">
+              <div class="card-header">
+                <div class="header-icon"><i data-lucide="key-round"></i></div>
+                <h3>Gmail SMTP Config</h3>
+              </div>
+              
+              <div class="card-body">
+                <div class="alert info">
+                  <i data-lucide="info" class="alert-icon"></i>
+                  <div class="alert-content">
+                    <h5>Gmail Setup Required</h5>
+                    <p>Gmail SMTP requires enabling **2-Step Verification** on your Google account and creating a 16-character **App Password** under Security Settings. Do not enter your main Google password.</p>
+                  </div>
+                </div>
+
+                <div class="input-group">
+                  <label for="smtp-user">Gmail Address</label>
+                  <input type="email" id="smtp-user" placeholder="yourname@gmail.com" required>
+                </div>
+
+                <div class="input-group" style="margin-bottom: 0;">
+                  <label for="smtp-pass">Gmail App Password</label>
+                  <div class="password-input-wrapper">
+                    <input type="password" id="smtp-pass" placeholder="•••• •••• •••• ••••" required>
+                    <button type="button" id="toggle-password" class="password-toggle">
+                      <i data-lucide="eye"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Settings Right Column -->
+          <div class="settings-column">
+            
+            <!-- Dispatch Intervals & Tracking Card -->
+            <div class="card glass" style="margin-bottom: 0; height: 100%;">
+              <div class="card-header">
+                <div class="header-icon"><i data-lucide="timer"></i></div>
+                <h3>Sending & Tracking Settings</h3>
+              </div>
+              
+              <div class="card-body">
+                <div class="input-group">
+                  <div class="label-row">
+                    <label for="interval-minutes">Sending Interval</label>
+                    <span id="interval-readout" class="badge">Every 3.0 mins</span>
+                  </div>
+                  <input type="range" id="interval-minutes" min="0.05" max="15" step="0.05" value="3">
+                  <div class="range-labels">
+                    <span>Fast Test (3s)</span>
+                    <span>1 min</span>
+                    <span>5 mins</span>
+                    <span>10 mins</span>
+                    <span>15 mins</span>
+                  </div>
+                </div>
+
+                <hr class="card-divider">
+
+                <div class="input-group">
+                  <label for="tracking-url">Public Tracking Base URL (Optional)</label>
+                  <input type="url" id="tracking-url" placeholder="E.g., https://xxxx.ngrok-free.app">
+                  <span class="subtext" style="font-size: 0.75rem; color: var(--text-dark); margin-top: 0.2rem; display: block;">
+                    Expose port 3000 (e.g. run <code>ngrok http 3000</code>) and enter the public URL here to enable email open and link click tracking. Leave empty to disable.
+                  </span>
+                </div>
+
+                <hr class="card-divider">
+
+                <div class="input-group" style="margin-bottom: 0;">
+                  <label for="test-email-target">Test Target Email</label>
+                  <input type="email" id="test-email-target" placeholder="E.g., yourname@gmail.com">
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- Configuration actions -->
+        <div class="settings-actions" style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+          <button id="test-connection-btn" class="btn secondary" style="width: auto;">
+            <i data-lucide="send"></i> Test Configuration
+          </button>
+          <button id="save-settings-btn" class="btn primary-gradient" style="width: auto; padding-left: 2rem; padding-right: 2rem;">
+            <i data-lucide="save"></i> Save Settings
+          </button>
+        </div>
+        <div id="test-connection-result" class="result-message" style="display: none; margin-top: 1rem;"></div>
+      </div>
+
+      <!-- TAB: Campaign History -->
+      <div id="tab-history" class="tab-content">
+        <!-- History Total Metrics Row -->
+        <div class="metrics-grid" style="margin-bottom: 1.5rem;">
           <div class="metric-card glass sent">
             <div class="metric-icon"><i data-lucide="check-circle-2"></i></div>
             <div class="metric-data">
-              <span class="label">Delivered</span>
-              <h2 id="metric-sent">0</h2>
+              <span class="label">Total Delivered</span>
+              <h2 id="history-metric-sent">0</h2>
             </div>
           </div>
 
           <div class="metric-card glass opened">
             <div class="metric-icon"><i data-lucide="eye"></i></div>
             <div class="metric-data">
-              <span class="label">Opened</span>
-              <h2 id="metric-opened">0</h2>
+              <span class="label">Total Opened</span>
+              <h2 id="history-metric-opened">0</h2>
             </div>
           </div>
 
           <div class="metric-card glass clicked">
             <div class="metric-icon"><i data-lucide="mouse-pointer-click"></i></div>
             <div class="metric-data">
-              <span class="label">Clicked</span>
-              <h2 id="metric-clicked">0</h2>
+              <span class="label">Total Clicked</span>
+              <h2 id="history-metric-clicked">0</h2>
             </div>
           </div>
 
           <div class="metric-card glass failed">
             <div class="metric-icon"><i data-lucide="alert-triangle"></i></div>
             <div class="metric-data">
-              <span class="label">Failed</span>
-              <h2 id="metric-failed">0</h2>
+              <span class="label">Total Failed</span>
+              <h2 id="history-metric-failed">0</h2>
             </div>
           </div>
 
           <div class="metric-card glass pending">
             <div class="metric-icon"><i data-lucide="clock"></i></div>
             <div class="metric-data">
-              <span class="label">Pending</span>
-              <h2 id="metric-pending">0</h2>
+              <span class="label">Total Pending</span>
+              <h2 id="history-metric-pending">0</h2>
             </div>
           </div>
 
           <div class="metric-card glass rate">
             <div class="metric-icon"><i data-lucide="percent"></i></div>
             <div class="metric-data">
-              <span class="label">Success Rate</span>
-              <h2 id="metric-rate">100%</h2>
+              <span class="label">Overall Success Rate</span>
+              <h2 id="history-metric-rate">100%</h2>
             </div>
           </div>
-
         </div>
 
-        <!-- Global Campaign Progress Section -->
-        <div class="card glass progress-card">
-          <div class="progress-info">
-            <span class="progress-title">Campaign Send Progress</span>
-            <span id="progress-text">0 / 0 Emails Sent</span>
-          </div>
-          <div class="progress-bar-container">
-            <div id="progress-fill" class="progress-bar-fill" style="width: 0%"></div>
-          </div>
-          <!-- Next scheduled email dispatcher card -->
-          <div id="countdown-card" class="countdown-card" style="display: none;">
-            <i data-lucide="loader" class="spin-icon"></i>
-            <span id="countdown-text">Preparing next delivery...</span>
-          </div>
-        </div>
-
-        <!-- Console Logging Terminal Card -->
-        <div class="card glass console-card">
+        <div class="card glass" style="margin-bottom: 0;">
           <div class="card-header">
-            <div class="header-icon"><i data-lucide="terminal"></i></div>
-            <h3>Activity Console Logs</h3>
-            <button id="clear-logs-btn" class="icon-btn sm" title="Clear console view">
-              <i data-lucide="ban"></i>
-            </button>
+            <div class="header-icon"><i data-lucide="history"></i></div>
+            <h3>Past Campaign Runs</h3>
           </div>
           <div class="card-body">
-            <div id="console-terminal" class="console-terminal">
-              <!-- Dynamically populated logs -->
-              <div class="log-line system">[SYSTEM] Welcome to Gmail Marketing Console. Upload a spreadsheet to start.</div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Date & Time</th>
+                    <th>Subject</th>
+                    <th>Total</th>
+                    <th>Sent</th>
+                    <th>Failed</th>
+                    <th>Opened</th>
+                    <th>Clicked</th>
+                    <th width="150" style="text-align: center;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="history-table-body">
+                  <tr>
+                    <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                      No campaign runs recorded yet.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-          </div>
-        </div>
-
-        <!-- TAB: Campaign History -->
-        <div id="tab-history" class="tab-content">
-          <div class="card glass">
-            <div class="card-header">
-              <div class="header-icon"><i data-lucide="history"></i></div>
-              <h3>Past Campaign Runs</h3>
-            </div>
-            <div class="card-body">
-              <div class="table-container">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Date & Time</th>
-                      <th>Subject</th>
-                      <th>Total</th>
-                      <th>Sent</th>
-                      <th>Failed</th>
-                      <th>Opened</th>
-                      <th>Clicked</th>
-                      <th width="150" style="text-align: center;">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="history-table-body">
-                    <tr>
-                      <td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">
-                        No campaign runs recorded yet.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
-      </section>
-
-    </main>
-
-    <!-- Bottom Section: Detailed Recipients Status Table Grid -->
-    <footer class="queue-panel">
-      <div class="card glass">
-        <div class="card-header table-header">
-          <div class="table-title" style="display: flex; align-items: center; gap: 1rem;">
-            <div class="header-icon"><i data-lucide="list-todo"></i></div>
-            <h3>Recipient Queue Details</h3>
-            <button id="export-current-btn" class="btn secondary" style="padding: 6px 12px; font-size: 0.85rem; height: 32px; display: flex; align-items: center; gap: 4px;" title="Export current campaign data as CSV" onclick="exportCurrentCampaign()">
-              <i data-lucide="download" style="width: 14px; height: 14px;"></i> Export CSV
-            </button>
-            <button id="clear-queue-btn" class="btn danger" style="padding: 6px 12px; font-size: 0.85rem; height: 32px; display: flex; align-items: center; gap: 4px;" title="Wipe recipient list queue from database" onclick="clearCampaignQueue()">
-              <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Clear Queue
-            </button>
-          </div>
-          <div class="table-actions">
-            <!-- Filter Options -->
-            <div class="filter-group">
-              <button class="filter-btn active" onclick="filterQueue('all')">All</button>
-              <button class="filter-btn" onclick="filterQueue('pending')">Pending</button>
-              <button class="filter-btn" onclick="filterQueue('sent')">Sent</button>
-              <button class="filter-btn" onclick="filterQueue('failed')">Failed</button>
-            </div>
-            <!-- Search bar -->
-            <div class="search-wrapper">
-              <i data-lucide="search" class="search-icon"></i>
-              <input type="text" id="queue-search" placeholder="Search by name or email..." oninput="handleSearch()">
-            </div>
-          </div>
-        </div>
-        
-        <div class="card-body table-body">
-          <div class="table-container">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th width="60">Index</th>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Company</th>
-                  <th>City</th>
-                  <th width="120">Status</th>
-                  <th width="160">Open Tracker</th>
-                  <th width="230">Link Clicks</th>
-                  <th>Sent Timestamp</th>
-                  <th>Error Log Details</th>
-                </tr>
-              </thead>
-              <tbody id="queue-tbody">
-                <tr>
-                  <td colspan="10" class="table-empty">
-                    <i data-lucide="users-2"></i>
-                    <p>No recipient list loaded yet. Upload your Excel/CSV sheet from the Compose tab.</p>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         </div>
       </div>
-    </footer>
 
+    </main>
+
+  </div>
+
+  <!-- Export Filter Modal Overlay -->
+  <div id="export-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i data-lucide="download"></i> Export Campaign CSV</h3>
+        <button class="modal-close-btn" onclick="closeExportModal()">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+          Configure filters to export specific recipients. Leave fields blank to export all.
+        </p>
+        
+        <div class="modal-grid-2">
+          <div class="input-group">
+            <label for="export-start-date">Start Date</label>
+            <input type="date" id="export-start-date">
+          </div>
+          <div class="input-group">
+            <label for="export-end-date">End Date</label>
+            <input type="date" id="export-end-date">
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="export-client-type">Client Type</label>
+          <select id="export-client-type"></select>
+        </div>
+
+        <div class="input-group">
+          <label for="export-company">Client Company</label>
+          <select id="export-company"></select>
+        </div>
+
+        <div class="input-group">
+          <label for="export-city">City / Location</label>
+          <select id="export-city"></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" onclick="closeExportModal()">Cancel</button>
+        <button class="btn primary-gradient" onclick="submitExport()">
+          <i data-lucide="download"></i> Export CSV
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Lucide Icons initialization -->

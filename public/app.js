@@ -1,4 +1,8 @@
 // Global State Management
+let selectedDate = null;
+let currentYear = new Date().getFullYear();
+let currentMonth = new Date().getMonth(); // 0-indexed
+let calendarCampaigns = {};
 let currentStatus = 'IDLE';
 let recipientsList = [];
 let logsList = [];
@@ -7,6 +11,11 @@ let currentFilter = 'all';
 let currentSearch = '';
 let settingsData = { smtpUser: '', smtpPass: '', intervalMinutes: 3, testEmail: '', trackingUrl: '' };
 let settingsLoaded = false;
+let fileReferenceCleared = false;
+
+// Pagination State
+let currentPage = 1;
+let pageSize = 25;
 
 // UI Elements
 const dropZone = document.getElementById('drop-zone');
@@ -70,7 +79,168 @@ window.switchTab = function(tabId) {
   
   const activeContent = document.getElementById(tabId);
   if (activeContent) activeContent.classList.add('active');
+  
+  if (tabId === 'tab-composer') {
+    if (!selectedDate) {
+      document.getElementById('composer-calendar-view').style.display = 'block';
+      document.getElementById('composer-dashboard-view').style.display = 'none';
+      fetchCalendarCampaigns();
+    } else {
+      document.getElementById('composer-calendar-view').style.display = 'none';
+      document.getElementById('composer-dashboard-view').style.display = 'block';
+    }
+  }
 };
+
+/* ==========================================================================
+   Calendar Logic
+   ========================================================================== */
+window.prevMonth = function() {
+  currentMonth--;
+  if (currentMonth < 0) {
+    currentMonth = 11;
+    currentYear--;
+  }
+  fetchCalendarCampaigns();
+};
+
+window.nextMonth = function() {
+  currentMonth++;
+  if (currentMonth > 11) {
+    currentMonth = 0;
+    currentYear++;
+  }
+  fetchCalendarCampaigns();
+};
+
+window.fetchCalendarCampaigns = async function() {
+  try {
+    const response = await fetch('/api/campaigns/list');
+    if (response.ok) {
+      calendarCampaigns = await response.json();
+    }
+  } catch (error) {
+    console.error('Error fetching campaigns list for calendar:', error);
+  }
+  renderCalendar();
+};
+
+window.renderCalendar = function() {
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  
+  // Update header text
+  const headerEl = document.getElementById('calendar-month-year');
+  if (headerEl) {
+    headerEl.textContent = `${monthNames[currentMonth]} ${currentYear}`;
+  }
+  
+  const gridEl = document.getElementById('calendar-days-grid');
+  if (!gridEl) return;
+  
+  gridEl.innerHTML = '';
+  
+  const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  
+  // Render empty cells for offset
+  for (let i = 0; i < firstDay; i++) {
+    const emptyCell = document.createElement('div');
+    emptyCell.className = 'calendar-day-cell empty-day';
+    gridEl.appendChild(emptyCell);
+  }
+  
+  const today = new Date();
+  
+  // Render day cells
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cell = document.createElement('div');
+    cell.className = 'calendar-day-cell';
+    
+    const dayStr = String(day).padStart(2, '0');
+    const monthStr = String(currentMonth + 1).padStart(2, '0');
+    const dateStr = `${currentYear}-${monthStr}-${dayStr}`;
+    
+    // Highlight today
+    if (today.getDate() === day && today.getMonth() === currentMonth && today.getFullYear() === currentYear) {
+      cell.classList.add('today');
+    }
+    
+    cell.setAttribute('onclick', `loadCampaignForDate('${dateStr}')`);
+    
+    // Day number
+    const numEl = document.createElement('div');
+    numEl.className = 'day-number';
+    numEl.textContent = day;
+    cell.appendChild(numEl);
+    
+    // Campaign details/badges if any
+    const camp = calendarCampaigns[dateStr];
+    if (camp) {
+      const badge = document.createElement('div');
+      const statusLower = (camp.status || 'idle').toLowerCase();
+      badge.className = `campaign-badge ${statusLower}`;
+      
+      const title = document.createElement('div');
+      title.className = 'campaign-title';
+      title.textContent = camp.subject || '(No Subject)';
+      badge.appendChild(title);
+      
+      const meta = document.createElement('div');
+      meta.className = 'campaign-meta';
+      
+      const dot = document.createElement('span');
+      dot.className = `status-dot ${statusLower}`;
+      meta.appendChild(dot);
+      
+      const text = document.createElement('span');
+      text.textContent = `${camp.count} contact${camp.count !== 1 ? 's' : ''}`;
+      meta.appendChild(text);
+      
+      badge.appendChild(meta);
+      cell.appendChild(badge);
+    }
+    
+    gridEl.appendChild(cell);
+  }
+  
+  // Refresh Lucide icons if any
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+};
+
+window.loadCampaignForDate = function(dateStr) {
+  selectedDate = dateStr;
+  
+  document.getElementById('composer-calendar-view').style.display = 'none';
+  document.getElementById('composer-dashboard-view').style.display = 'block';
+  
+  const labelEl = document.getElementById('active-campaign-date-label');
+  if (labelEl) {
+    labelEl.textContent = `Campaign for: ${dateStr}`;
+  }
+  
+  // Clear file references in UI and reset loaded campaign details
+  fileReferenceCleared = false;
+  settingsLoaded = false;
+  
+  // Clear fields momentarily to show loading
+  subjectInput.value = '';
+  bodyInput.value = '';
+  
+  fetchStatus();
+};
+
+window.backToCalendar = function() {
+  selectedDate = null;
+  document.getElementById('composer-calendar-view').style.display = 'block';
+  document.getElementById('composer-dashboard-view').style.display = 'none';
+  fetchCalendarCampaigns();
+};
+
 
 /* ==========================================================================
    Cursor focus tracking for placeholder tags injection
@@ -143,7 +313,7 @@ async function handleFileUpload(file) {
   fileSizeEl.textContent = `${(file.size / 1024).toFixed(1)} KB`;
   
   try {
-    const response = await fetch('/api/upload-recipients', {
+    const response = await fetch(`/api/upload-recipients?date=${selectedDate}`, {
       method: 'POST',
       body: formData
     });
@@ -151,6 +321,7 @@ async function handleFileUpload(file) {
     const result = await response.json();
     if (response.ok) {
       showTerminalLog(`Successfully parsed sheet! Loaded ${result.count} contacts.`, 'success');
+      fileReferenceCleared = false;
       dropZone.style.display = 'none';
       fileInfo.style.display = 'flex';
       await fetchStatus();
@@ -196,12 +367,19 @@ intervalSlider.addEventListener('input', (e) => {
 });
 
 saveSettingsBtn.addEventListener('click', async () => {
+  const selectedDays = Array.from(document.querySelectorAll('input[name="schedule-day"]:checked')).map(el => parseInt(el.value));
+  
   const payload = {
     smtpUser: smtpUserInput.value.trim(),
     smtpPass: smtpPassInput.value,
     intervalMinutes: parseFloat(intervalSlider.value),
     testEmail: testEmailTargetInput.value.trim(),
-    trackingUrl: trackingUrlInput.value.trim()
+    trackingUrl: trackingUrlInput.value.trim(),
+    scheduleEnabled: document.getElementById('schedule-enabled').checked,
+    scheduleStartDate: document.getElementById('schedule-start-date').value,
+    scheduleAllowedStart: document.getElementById('schedule-allowed-start').value,
+    scheduleAllowedEnd: document.getElementById('schedule-allowed-end').value,
+    scheduleDays: selectedDays
   };
   
   if (!payload.smtpUser) {
@@ -290,8 +468,49 @@ testConnectionBtn.addEventListener('click', async () => {
 });
 
 /* ==========================================================================
-   Campaign Actions: Start, Pause, Reset
+   Campaign Actions: Start, Pause, Reset, Save Draft
    ========================================================================== */
+const saveDraftBtn = document.getElementById('save-draft-btn');
+
+saveDraftBtn.addEventListener('click', async () => {
+  const subject = subjectInput.value.trim();
+  const body = bodyInput.value;
+  const selectedDays = Array.from(document.querySelectorAll('input[name="schedule-day"]:checked')).map(el => parseInt(el.value));
+  
+  saveDraftBtn.disabled = true;
+  
+  try {
+    const response = await fetch('/api/campaign/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: selectedDate,
+        subject,
+        body,
+        scheduleEnabled: document.getElementById('schedule-enabled').checked,
+        scheduleTime: document.getElementById('schedule-time').value,
+        scheduleAllowedStart: document.getElementById('schedule-allowed-start').value,
+        scheduleAllowedEnd: document.getElementById('schedule-allowed-end').value,
+        scheduleDays: selectedDays
+      })
+    });
+    
+    if (response.ok) {
+      showTerminalLog('Campaign draft and scheduling options saved successfully.', 'success');
+      alert('Campaign draft saved!');
+      await fetchStatus();
+    } else {
+      const err = await response.json();
+      showTerminalLog(`Save Draft Failed: ${err.error}`, 'error');
+      alert(err.error);
+    }
+  } catch (error) {
+    showTerminalLog(`Failed to save draft: ${error.message}`, 'error');
+  } finally {
+    saveDraftBtn.disabled = false;
+  }
+});
+
 startBtn.addEventListener('click', async () => {
   const subject = subjectInput.value.trim();
   const body = bodyInput.value;
@@ -307,17 +526,27 @@ startBtn.addEventListener('click', async () => {
     return;
   }
   
+  const selectedDays = Array.from(document.querySelectorAll('input[name="schedule-day"]:checked')).map(el => parseInt(el.value));
   startBtn.disabled = true;
   
   try {
     const response = await fetch('/api/campaign/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, body })
+      body: JSON.stringify({
+        date: selectedDate,
+        subject,
+        body,
+        scheduleEnabled: document.getElementById('schedule-enabled').checked,
+        scheduleTime: document.getElementById('schedule-time').value,
+        scheduleAllowedStart: document.getElementById('schedule-allowed-start').value,
+        scheduleAllowedEnd: document.getElementById('schedule-allowed-end').value,
+        scheduleDays: selectedDays
+      })
     });
     
     if (response.ok) {
-      showTerminalLog('Campaign start command processed.', 'info');
+      showTerminalLog('Campaign start/resume command processed.', 'info');
       await fetchStatus();
     } else {
       const err = await response.json();
@@ -334,7 +563,11 @@ startBtn.addEventListener('click', async () => {
 pauseBtn.addEventListener('click', async () => {
   pauseBtn.disabled = true;
   try {
-    const response = await fetch('/api/campaign/stop', { method: 'POST' });
+    const response = await fetch('/api/campaign/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: selectedDate })
+    });
     if (response.ok) {
       showTerminalLog('Campaign pause command processed.', 'info');
       await fetchStatus();
@@ -352,7 +585,11 @@ resetBtn.addEventListener('click', async () => {
   }
   resetBtn.disabled = true;
   try {
-    const response = await fetch('/api/campaign/reset', { method: 'POST' });
+    const response = await fetch('/api/campaign/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: selectedDate })
+    });
     if (response.ok) {
       showTerminalLog('Campaign configuration and progress values reset.', 'info');
       await fetchStatus();
@@ -365,6 +602,7 @@ resetBtn.addEventListener('click', async () => {
 });
 
 function resetCampaignState() {
+  fileReferenceCleared = true;
   dropZone.style.display = 'flex';
   fileInfo.style.display = 'none';
   fileInput.value = '';
@@ -376,7 +614,8 @@ function resetCampaignState() {
    ========================================================================== */
 async function fetchStatus() {
   try {
-    const response = await fetch('/api/campaign/status');
+    const url = selectedDate ? `/api/campaign/status?date=${selectedDate}` : '/api/campaign/status';
+    const response = await fetch(url);
     if (!response.ok) {
       setConnectionStatus(false);
       return;
@@ -388,17 +627,31 @@ async function fetchStatus() {
     const oldStatus = currentStatus;
     currentStatus = data.status;
     
-    // Auto-download report once when campaign transitions to COMPLETED
-    if (oldStatus === 'RUNNING' && currentStatus === 'COMPLETED') {
-      showTerminalLog('Campaign completed! Automatically downloading campaign report...', 'success');
-      exportCurrentCampaign();
+    // If no date is selected, we are in calendar view, so only update global settings/status and skip campaign details
+    if (!selectedDate) {
+      settingsData = data.settings;
+      if (!settingsLoaded) {
+        smtpUserInput.value = data.settings.smtpUser || '';
+        smtpPassInput.value = data.settings.smtpPass || '';
+        intervalSlider.value = data.settings.intervalMinutes || 3;
+        const val = parseFloat(intervalSlider.value);
+        if (val < 1) {
+          intervalReadout.textContent = `Every ${Math.round(val * 60)} seconds`;
+        } else {
+          intervalReadout.textContent = `Every ${val.toFixed(1)} mins`;
+        }
+        testEmailTargetInput.value = data.settings.testEmail || '';
+        trackingUrlInput.value = data.settings.trackingUrl || '';
+        settingsLoaded = true;
+      }
+      return;
     }
     
     recipientsList = data.campaign.recipients || [];
     logsList = data.campaign.logs || [];
     settingsData = data.settings;
     
-    // Sync Settings Panel values on initial load or after saving
+    // Sync Settings Panel and campaign scheduling options
     if (!settingsLoaded) {
       smtpUserInput.value = data.settings.smtpUser || '';
       smtpPassInput.value = data.settings.smtpPass || '';
@@ -412,6 +665,18 @@ async function fetchStatus() {
       }
       testEmailTargetInput.value = data.settings.testEmail || '';
       trackingUrlInput.value = data.settings.trackingUrl || '';
+      
+      document.getElementById('schedule-enabled').checked = !!data.campaign.scheduleEnabled;
+      document.getElementById('schedule-time').value = data.campaign.scheduleTime || '09:00';
+      document.getElementById('schedule-allowed-start').value = data.campaign.scheduleAllowedStart || '09:00';
+      document.getElementById('schedule-allowed-end').value = data.campaign.scheduleAllowedEnd || '18:00';
+      
+      const allowedDays = data.campaign.scheduleDays || [1, 2, 3, 4, 5];
+      document.querySelectorAll('input[name="schedule-day"]').forEach(checkbox => {
+        const val = parseInt(checkbox.value);
+        checkbox.checked = allowedDays.includes(val);
+      });
+      
       settingsLoaded = true;
     }
     
@@ -424,7 +689,7 @@ async function fetchStatus() {
     }
     
     // Update Drag-n-Drop state visually on full status refreshes
-    if (recipientsList.length > 0) {
+    if (recipientsList.length > 0 && !fileReferenceCleared) {
       dropZone.style.display = 'none';
       fileInfo.style.display = 'flex';
       // If we don't have file details, put fallback text
@@ -617,6 +882,7 @@ clearLogsBtn.addEventListener('click', () => {
    ========================================================================== */
 window.filterQueue = function(filterValue) {
   currentFilter = filterValue;
+  currentPage = 1;
   document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.classList.remove('active');
     if (btn.getAttribute('onclick').includes(filterValue)) {
@@ -628,6 +894,7 @@ window.filterQueue = function(filterValue) {
 
 window.handleSearch = function() {
   currentSearch = queueSearchInput.value.toLowerCase().trim();
+  currentPage = 1;
   renderRecipientsTable();
 };
 
@@ -635,13 +902,21 @@ function renderRecipientsTable() {
   if (recipientsList.length === 0) {
     queueTbody.innerHTML = `
       <tr>
-        <td colspan="10" class="table-empty">
+        <td colspan="11" class="table-empty">
           <i data-lucide="users-2"></i>
           <p>No recipient list loaded yet. Upload your Excel/CSV sheet from the Compose tab.</p>
         </td>
       </tr>
     `;
     lucide.createIcons();
+    
+    // Reset pagination display
+    document.getElementById('pagination-start').textContent = '0';
+    document.getElementById('pagination-end').textContent = '0';
+    document.getElementById('pagination-total').textContent = '0';
+    document.getElementById('current-page-display').textContent = 'Page 1 / 1';
+    document.getElementById('prev-page-btn').disabled = true;
+    document.getElementById('next-page-btn').disabled = true;
     return;
   }
   
@@ -668,10 +943,25 @@ function renderRecipientsTable() {
     return true;
   });
   
+  const totalRecords = filtered.length;
+  const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+  currentPage = Math.max(1, Math.min(currentPage, totalPages));
+  
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalRecords);
+  
+  // Update pagination indicators
+  document.getElementById('pagination-start').textContent = totalRecords > 0 ? startIndex + 1 : 0;
+  document.getElementById('pagination-end').textContent = endIndex;
+  document.getElementById('pagination-total').textContent = totalRecords;
+  document.getElementById('current-page-display').textContent = `Page ${currentPage} / ${totalPages}`;
+  document.getElementById('prev-page-btn').disabled = (currentPage === 1);
+  document.getElementById('next-page-btn').disabled = (currentPage === totalPages);
+  
   if (filtered.length === 0) {
     queueTbody.innerHTML = `
       <tr>
-        <td colspan="10" class="table-empty">
+        <td colspan="11" class="table-empty">
           <i data-lucide="search-code"></i>
           <p>No records match your filters or search terms.</p>
         </td>
@@ -681,7 +971,9 @@ function renderRecipientsTable() {
     return;
   }
   
-  queueTbody.innerHTML = filtered.map(r => {
+  const paginated = filtered.slice(startIndex, endIndex);
+  
+  queueTbody.innerHTML = paginated.map(r => {
     const sentTime = r.sentAt ? new Date(r.sentAt).toLocaleString() : '-';
     const statusLower = r.status.toLowerCase();
     const errorText = r.error ? escapeHtml(r.error) : '-';
@@ -720,15 +1012,19 @@ function renderRecipientsTable() {
       clickCell = `<div class="tracker-cell"><span class="tracker-badge not-clicked">&#128432; No Clicks</span></div>`;
     }
     
-    // Dynamically look for Company and City fields in uploaded sheet metadata
+    // Dynamically look for Company, City and Client Type fields in uploaded sheet metadata
     let companyVal = '-';
     let cityVal = '-';
+    let clientTypeVal = '-';
     if (r.data) {
       const companyKey = Object.keys(r.data).find(k => /company/i.test(k));
       if (companyKey) companyVal = r.data[companyKey] || '-';
       
       const cityKey = Object.keys(r.data).find(k => /city/i.test(k));
       if (cityKey) cityVal = r.data[cityKey] || '-';
+      
+      const typeKey = Object.keys(r.data).find(k => /type/i.test(k));
+      if (typeKey) clientTypeVal = r.data[typeKey] || '-';
     }
 
     return `
@@ -738,6 +1034,7 @@ function renderRecipientsTable() {
         <td>${escapeHtml(r.email)}</td>
         <td>${escapeHtml(companyVal)}</td>
         <td>${escapeHtml(cityVal)}</td>
+        <td>${escapeHtml(clientTypeVal)}</td>
         <td>
           <span class="badge-status ${statusLower}">
             ${statusLower}
@@ -751,6 +1048,40 @@ function renderRecipientsTable() {
     `;
   }).join('');
 }
+
+window.changePageSize = function() {
+  const select = document.getElementById('page-size-select');
+  if (select) {
+    pageSize = parseInt(select.value) || 25;
+    currentPage = 1;
+    renderRecipientsTable();
+  }
+};
+
+window.prevPage = function() {
+  if (currentPage > 1) {
+    currentPage--;
+    renderRecipientsTable();
+  }
+};
+
+window.nextPage = function() {
+  const totalRecords = recipientsList.filter(recipient => {
+    if (currentFilter !== 'all' && recipient.status.toLowerCase() !== currentFilter) return false;
+    if (currentSearch) {
+      const name = (recipient.name || '').toLowerCase();
+      const email = (recipient.email || '').toLowerCase();
+      if (!name.includes(currentSearch) && !email.includes(currentSearch)) return false;
+    }
+    return true;
+  }).length;
+  
+  const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+  if (currentPage < totalPages) {
+    currentPage++;
+    renderRecipientsTable();
+  }
+};
 
 /* ==========================================================================
    Utilities
@@ -768,7 +1099,126 @@ function escapeHtml(str) {
    Campaign History and CSV Exports Handler
    ========================================================================== */
 window.exportCurrentCampaign = function() {
-  window.location.href = '/api/campaign/export';
+  const modal = document.getElementById('export-modal');
+  if (modal) {
+    modal.classList.add('active');
+    
+    // Reset dates
+    document.getElementById('export-start-date').value = '';
+    document.getElementById('export-end-date').value = '';
+
+    // Collect all unique client types, companies, cities from recipientsList
+    const clientTypes = new Set();
+    const companies = new Set();
+    const cities = new Set();
+
+    recipientsList.forEach(r => {
+      if (r.data) {
+        // Look for keys containing "type", "company", "city"
+        const typeKey = Object.keys(r.data).find(k => /type/i.test(k));
+        if (typeKey && r.data[typeKey]) {
+          const val = r.data[typeKey].trim();
+          if (val) clientTypes.add(val);
+        }
+
+        const companyKey = Object.keys(r.data).find(k => /company/i.test(k));
+        if (companyKey && r.data[companyKey]) {
+          const val = r.data[companyKey].trim();
+          if (val) companies.add(val);
+        }
+
+        const cityKey = Object.keys(r.data).find(k => /city/i.test(k));
+        if (cityKey && r.data[cityKey]) {
+          const val = r.data[cityKey].trim();
+          if (val) cities.add(val);
+        }
+      }
+    });
+
+    // Helper to populate select options
+    const populateSelect = (elementId, valuesSet, placeholderText) => {
+      const select = document.getElementById(elementId);
+      if (!select) return;
+
+      let html = `<option value="">-- ${placeholderText} --</option>`;
+      Array.from(valuesSet).sort().forEach(val => {
+        html += `<option value="${escapeHtml(val)}">${escapeHtml(val)}</option>`;
+      });
+      select.innerHTML = html;
+    };
+
+    populateSelect('export-client-type', clientTypes, 'All Client Types');
+    populateSelect('export-company', companies, 'All Companies');
+    populateSelect('export-city', cities, 'All Cities');
+  }
+};
+
+window.closeExportModal = function() {
+  const modal = document.getElementById('export-modal');
+  if (modal) modal.classList.remove('active');
+};
+
+window.submitExport = async function() {
+  const startDate = document.getElementById('export-start-date').value;
+  const endDate = document.getElementById('export-end-date').value;
+  const clientType = document.getElementById('export-client-type').value;
+  const company = document.getElementById('export-company').value;
+  const city = document.getElementById('export-city').value;
+  
+  const params = new URLSearchParams();
+  if (selectedDate) params.append('date', selectedDate);
+  if (startDate) params.append('startDate', startDate);
+  if (endDate) params.append('endDate', endDate);
+  if (clientType) params.append('clientType', clientType);
+  if (company) params.append('company', company);
+  if (city) params.append('city', city);
+  
+  const submitBtn = document.querySelector('.modal-footer .btn.primary-gradient');
+  const originalText = submitBtn.innerHTML;
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="spin-icon" data-lucide="loader"></i> Exporting...';
+  lucide.createIcons();
+
+  try {
+    const url = `/api/campaign/export?${params.toString()}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorMsg = await response.text();
+      alert(`Export Failed: ${errorMsg}`);
+      return;
+    }
+    
+    // Trigger download
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    
+    // Get filename from header if possible
+    const disposition = response.headers.get('content-disposition');
+    let filename = 'campaign_report.csv';
+    if (disposition && disposition.indexOf('attachment') !== -1) {
+      const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+      const matches = filenameRegex.exec(disposition);
+      if (matches != null && matches[1]) { 
+        filename = matches[1].replace(/['"]/g, '');
+      }
+    }
+    
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+    
+    closeExportModal();
+  } catch (error) {
+    alert(`Network Error: ${error.message}`);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalText;
+    lucide.createIcons();
+  }
 };
 
 window.clearCampaignQueue = async function() {
@@ -776,8 +1226,13 @@ window.clearCampaignQueue = async function() {
     return;
   }
   try {
-    const response = await fetch('/api/campaign/clear', { method: 'POST' });
+    const response = await fetch('/api/campaign/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: selectedDate })
+    });
     if (response.ok) {
+      fileReferenceCleared = false;
       showTerminalLog('Active recipient queue completely cleared from the database.', 'info');
       await fetchStatus();
     }
@@ -796,6 +1251,31 @@ window.loadHistory = async function() {
     const res = await fetch('/api/history');
     if (!res.ok) throw new Error('Failed to fetch history');
     const runs = await res.json();
+    
+    // Aggregation of total metrics across all runs
+    let totalDelivered = 0;
+    let totalOpened = 0;
+    let totalClicked = 0;
+    let totalFailed = 0;
+    let totalPending = 0;
+    
+    runs.forEach(run => {
+      totalDelivered += (run.sentCount || 0);
+      totalOpened += (run.openedCount || 0);
+      totalClicked += (run.clickedCount || 0);
+      totalFailed += (run.failedCount || 0);
+      totalPending += Math.max(0, (run.totalCount || 0) - (run.sentCount || 0) - (run.failedCount || 0));
+    });
+    
+    const divisor = totalDelivered + totalFailed;
+    const successRate = divisor > 0 ? ((totalDelivered / divisor) * 100).toFixed(0) : '100';
+    
+    document.getElementById('history-metric-sent').textContent = totalDelivered;
+    document.getElementById('history-metric-opened').textContent = totalOpened;
+    document.getElementById('history-metric-clicked').textContent = totalClicked;
+    document.getElementById('history-metric-failed').textContent = totalFailed;
+    document.getElementById('history-metric-pending').textContent = totalPending;
+    document.getElementById('history-metric-rate').textContent = `${successRate}%`;
     
     if (runs.length === 0) {
       tableBody.innerHTML = `
@@ -851,6 +1331,14 @@ window.loadHistory = async function() {
 // Initial System Boots
 (async () => {
   await fetchStatus();
+  if (document.getElementById('tab-composer').classList.contains('active') && !selectedDate) {
+    await fetchCalendarCampaigns();
+  }
   // Set up periodic polling refresh
-  setInterval(fetchStatus, 1500);
+  setInterval(async () => {
+    await fetchStatus();
+    if (document.getElementById('tab-composer').classList.contains('active') && !selectedDate) {
+      await fetchCalendarCampaigns();
+    }
+  }, 3000);
 })();
