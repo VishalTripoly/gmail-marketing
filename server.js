@@ -20,7 +20,7 @@ const activeSessions = new Set();
 // Authorization middleware for administrative APIs
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') && req.path !== '/api/login' && !req.path.startsWith('/api/track/')) {
-    const token = req.headers['authorization'];
+    const token = req.headers['authorization'] || req.query.token;
     if (!token || !activeSessions.has(token)) {
       return res.status(401).json({ error: 'Unauthorized. Please login.' });
     }

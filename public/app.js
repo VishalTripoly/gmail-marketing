@@ -1361,7 +1361,8 @@ window.clearCampaignQueue = async function() {
 };
 
 window.exportHistoryRun = function(runId) {
-  window.location.href = `/api/history/export/${runId}`;
+  const token = localStorage.getItem('auth_token');
+  window.location.href = `/api/history/export/${runId}?token=${encodeURIComponent(token)}`;
 };
 
 window.loadHistory = async function() {
