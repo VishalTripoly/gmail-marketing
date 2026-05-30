@@ -13,6 +13,21 @@ const PORT = process.env.PORT || 3050;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Session Store for Admin Panel Authentication
+const activeSessions = new Set();
+
+// Authorization middleware for administrative APIs
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') && req.path !== '/api/login' && !req.path.startsWith('/api/track/')) {
+    const token = req.headers['authorization'];
+    if (!token || !activeSessions.has(token)) {
+      return res.status(401).json({ error: 'Unauthorized. Please login.' });
+    }
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Configure Multer for Excel/CSV file upload parsing
@@ -87,7 +102,9 @@ let db = {
     smtpPass: '',
     intervalMinutes: 3,
     testEmail: '',
-    trackingUrl: ''
+    trackingUrl: '',
+    adminUser: 'admin',
+    adminPass: 'vishal@9160$'
   },
   campaigns: {}
 };
@@ -102,7 +119,12 @@ function loadDatabase() {
       const data = fs.readFileSync(DB_PATH, 'utf8');
       const parsed = JSON.parse(data);
       
-      db.settings = { ...db.settings, ...parsed.settings };
+      db.settings = { 
+        adminUser: 'admin',
+        adminPass: 'vishal@9160$',
+        ...db.settings, 
+        ...parsed.settings 
+      };
       db.campaigns = parsed.campaigns || {};
       
       // Migrate old campaign object if present
@@ -590,7 +612,9 @@ app.get('/api/campaign/status', (req, res) => {
       smtpPass: db.settings.smtpPass ? '********' : '',
       intervalMinutes: db.settings.intervalMinutes,
       testEmail: db.settings.testEmail,
-      trackingUrl: db.settings.trackingUrl || ''
+      trackingUrl: db.settings.trackingUrl || '',
+      adminUser: db.settings.adminUser || 'admin',
+      adminPass: db.settings.adminPass ? '********' : ''
     },
     campaign: {
       subject: campaign.subject,
@@ -615,7 +639,7 @@ app.get('/api/campaign/status', (req, res) => {
 
 // API Route: Save Configuration
 app.post('/api/settings', (req, res) => {
-  const { smtpUser, smtpPass, intervalMinutes, testEmail, trackingUrl } = req.body;
+  const { smtpUser, smtpPass, intervalMinutes, testEmail, trackingUrl, adminUser, adminPass } = req.body;
   
   if (smtpUser !== undefined) db.settings.smtpUser = smtpUser;
   if (smtpPass && smtpPass !== '********') db.settings.smtpPass = smtpPass;
@@ -625,6 +649,13 @@ app.post('/api/settings', (req, res) => {
   if (testEmail !== undefined) db.settings.testEmail = testEmail;
   if (trackingUrl !== undefined) db.settings.trackingUrl = trackingUrl.trim();
   
+  if (adminUser !== undefined && adminUser.trim() !== '') {
+    db.settings.adminUser = adminUser.trim();
+  }
+  if (adminPass !== undefined && adminPass.trim() !== '' && adminPass !== '********') {
+    db.settings.adminPass = adminPass;
+  }
+  
   saveDatabase();
   res.json({
     success: true,
@@ -633,9 +664,34 @@ app.post('/api/settings', (req, res) => {
       smtpPass: db.settings.smtpPass ? '********' : '',
       intervalMinutes: db.settings.intervalMinutes,
       testEmail: db.settings.testEmail,
-      trackingUrl: db.settings.trackingUrl || ''
+      trackingUrl: db.settings.trackingUrl || '',
+      adminUser: db.settings.adminUser || 'admin',
+      adminPass: db.settings.adminPass ? '********' : ''
     }
   });
+});
+
+// API Route: Authenticate Admin User
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required.' });
+  }
+  if (username === db.settings.adminUser && password === db.settings.adminPass) {
+    const token = generateId(32);
+    activeSessions.add(token);
+    return res.json({ success: true, token });
+  }
+  return res.status(401).json({ error: 'Invalid username or password.' });
+});
+
+// API Route: Logout
+app.post('/api/logout', (req, res) => {
+  const token = req.headers['authorization'];
+  if (token) {
+    activeSessions.delete(token);
+  }
+  res.json({ success: true });
 });
 
 // API Route: Verify SMTP Connection
@@ -1037,6 +1093,39 @@ app.get('/api/track/open/:recipientId', (req, res) => {
     saveDatabase();
   }
   
+  // Also search and update matching recipient in archived history run files
+  try {
+    if (fs.existsSync(HISTORY_DIR)) {
+      const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        const filePath = path.join(HISTORY_DIR, file);
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        const run = JSON.parse(fileContent);
+        if (run.recipients) {
+          const r = run.recipients.find(rec => rec.id === recipientId);
+          if (r) {
+            let fileUpdated = false;
+            if (!r.opened) {
+              r.opened = true;
+              r.openedAt = new Date().toISOString();
+              run.openedCount = (run.openedCount || 0) + 1;
+              fileUpdated = true;
+            }
+            r.opensCount = (r.opensCount || 0) + 1;
+            fileUpdated = true;
+            
+            if (fileUpdated) {
+              fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
+              console.log(`[Track] History run file ${file} updated for email open by ${r.name}`);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error updating history run file for tracking open:', err);
+  }
+  
   res.writeHead(200, {
     'Content-Type': 'image/gif',
     'Content-Length': TRANSPARENT_GIF.length,
@@ -1082,6 +1171,36 @@ app.get('/api/track/click/:recipientId', (req, res) => {
     
     addCampaignLog(campaign, `[Track] Link clicked by ${recipient.name} <${recipient.email}>: ${targetUrl}`, 'success');
     saveDatabase();
+  }
+  
+  // Also search and update matching recipient in archived history run files
+  try {
+    if (fs.existsSync(HISTORY_DIR)) {
+      const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        const filePath = path.join(HISTORY_DIR, file);
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        const run = JSON.parse(fileContent);
+        if (run.recipients) {
+          const r = run.recipients.find(rec => rec.id === recipientId);
+          if (r) {
+            if (!r.clicks) r.clicks = [];
+            r.clicks.push({
+              url: targetUrl,
+              clickedAt: new Date().toISOString()
+            });
+            const isFirstClick = r.clicks.length === 1;
+            if (isFirstClick) {
+              run.clickedCount = (run.clickedCount || 0) + 1;
+            }
+            fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
+            console.log(`[Track] History run file ${file} updated for link click by ${r.name}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error updating history run file for tracking click:', err);
   }
   
   res.redirect(targetUrl);

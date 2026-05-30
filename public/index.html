@@ -15,8 +15,35 @@
 </head>
 <body>
 
+  <!-- Glassmorphic Login Overlay -->
+  <div id="login-overlay" class="login-overlay">
+    <div class="login-card glass">
+      <div class="login-header">
+        <div class="logo-icon">
+          <i data-lucide="mail-open"></i>
+        </div>
+        <h2>Gmail Marketing</h2>
+        <p>Secure Console Login</p>
+      </div>
+      <form id="login-form">
+        <div class="input-group">
+          <label for="login-username">Username</label>
+          <input type="text" id="login-username" placeholder="Username" required>
+        </div>
+        <div class="input-group">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn primary-gradient login-submit-btn">
+          <i data-lucide="log-in"></i> Sign In
+        </button>
+        <div id="login-error-message" class="login-error-message" style="display: none;"></div>
+      </form>
+    </div>
+  </div>
+
   <!-- App Container -->
-  <div class="app-container">
+  <div class="app-container" id="app-container" style="display: none;">
     
     <!-- Top Header -->
     <header class="main-header">
@@ -31,7 +58,7 @@
       </div>
       
       <!-- System Status Badges -->
-      <div class="status-indicators">
+      <div class="status-indicators" style="display: flex; align-items: center; gap: 0.75rem;">
         <div id="connection-status" class="status-indicator-badge success">
           <span class="dot pulse"></span>
           <span class="text">Server Online</span>
@@ -40,6 +67,9 @@
           <span class="dot"></span>
           <span class="text">Idle</span>
         </div>
+        <button id="header-logout-btn" class="btn secondary" style="padding: 6px 12px; height: 32px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px;" onclick="logout()">
+          <i data-lucide="log-out" style="width: 14px; height: 14px;"></i> Sign Out
+        </button>
       </div>
     </header>
 
@@ -503,7 +533,7 @@
           <!-- Settings Left Column -->
           <div class="settings-column">
             <!-- SMTP Configuration Credentials Card -->
-            <div class="card glass" style="margin-bottom: 0; height: 100%;">
+            <div class="card glass" style="margin-bottom: 1.5rem;">
               <div class="card-header">
                 <div class="header-icon"><i data-lucide="key-round"></i></div>
                 <h3>Gmail SMTP Config</h3>
@@ -531,6 +561,24 @@
                       <i data-lucide="eye"></i>
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Admin Logic Auth Credentials Card -->
+            <div class="card glass" style="margin-bottom: 0;">
+              <div class="card-header">
+                <div class="header-icon"><i data-lucide="shield-alert"></i></div>
+                <h3>Console Auth Credentials</h3>
+              </div>
+              <div class="card-body">
+                <div class="input-group">
+                  <label for="admin-user">Admin Username</label>
+                  <input type="text" id="admin-user" placeholder="admin" required>
+                </div>
+                <div class="input-group" style="margin-bottom: 0;">
+                  <label for="admin-pass">Admin Password</label>
+                  <input type="password" id="admin-pass" placeholder="••••••••" required>
                 </div>
               </div>
             </div>

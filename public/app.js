@@ -1,3 +1,37 @@
+// Authentication Overlay Helpers
+function showLoginScreen() {
+  document.getElementById('login-overlay').style.display = 'flex';
+  document.getElementById('app-container').style.display = 'none';
+}
+
+function hideLoginScreen() {
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('app-container').style.display = 'block';
+}
+
+// Override fetch to automatically carry auth token and intercept 401s
+const originalFetch = window.fetch;
+window.fetch = async function(url, options = {}) {
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    if (!options.headers) {
+      options.headers = {};
+    }
+    if (options.headers instanceof Headers) {
+      options.headers.set('Authorization', token);
+    } else {
+      options.headers['Authorization'] = token;
+    }
+  }
+  
+  const response = await originalFetch(url, options);
+  if (response.status === 401 && !url.includes('/api/login')) {
+    localStorage.removeItem('auth_token');
+    showLoginScreen();
+  }
+  return response;
+};
+
 // Global State Management
 let selectedDate = null;
 let currentYear = new Date().getFullYear();
@@ -9,7 +43,7 @@ let logsList = [];
 let activeInput = null;
 let currentFilter = 'all';
 let currentSearch = '';
-let settingsData = { smtpUser: '', smtpPass: '', intervalMinutes: 3, testEmail: '', trackingUrl: '' };
+let settingsData = { smtpUser: '', smtpPass: '', intervalMinutes: 3, testEmail: '', trackingUrl: '', adminUser: 'admin', adminPass: '' };
 let settingsLoaded = false;
 let fileReferenceCleared = false;
 let isPastDate = false;
@@ -470,7 +504,9 @@ saveSettingsBtn.addEventListener('click', async () => {
     scheduleStartDate: document.getElementById('schedule-start-date').value,
     scheduleAllowedStart: document.getElementById('schedule-allowed-start').value,
     scheduleAllowedEnd: document.getElementById('schedule-allowed-end').value,
-    scheduleDays: selectedDays
+    scheduleDays: selectedDays,
+    adminUser: document.getElementById('admin-user').value.trim(),
+    adminPass: document.getElementById('admin-pass').value
   };
   
   if (!payload.smtpUser) {
@@ -492,6 +528,8 @@ saveSettingsBtn.addEventListener('click', async () => {
     if (response.ok) {
       showTerminalLog('Settings saved successfully.', 'success');
       alert('SMTP settings saved successfully!');
+      // Clear password field in DOM so it shows mask again next load
+      document.getElementById('admin-pass').value = '';
       settingsLoaded = false;
       await fetchStatus();
     } else {
@@ -711,6 +749,8 @@ async function fetchStatus() {
         }
         testEmailTargetInput.value = data.settings.testEmail || '';
         trackingUrlInput.value = data.settings.trackingUrl || '';
+        document.getElementById('admin-user').value = data.settings.adminUser || 'admin';
+        document.getElementById('admin-pass').value = data.settings.adminPass || '';
         settingsLoaded = true;
       }
       return;
@@ -734,6 +774,8 @@ async function fetchStatus() {
       }
       testEmailTargetInput.value = data.settings.testEmail || '';
       trackingUrlInput.value = data.settings.trackingUrl || '';
+      document.getElementById('admin-user').value = data.settings.adminUser || 'admin';
+      document.getElementById('admin-pass').value = data.settings.adminPass || '';
       
       document.getElementById('schedule-enabled').checked = !!data.campaign.scheduleEnabled;
       document.getElementById('schedule-time').value = data.campaign.scheduleTime || '09:00';
@@ -1729,8 +1771,71 @@ window.dhNextPage = function() {
   }
 };
 
-// Initial System Boots
+// Login Form Submission Controller
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const errorMsgEl = document.getElementById('login-error-message');
+  
+  errorMsgEl.style.display = 'none';
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="spin-icon" data-lucide="loader"></i> Authenticating...';
+  lucide.createIcons();
+  
+  try {
+    const response = await originalFetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    
+    const result = await response.json();
+    if (response.ok && result.success) {
+      localStorage.setItem('auth_token', result.token);
+      hideLoginScreen();
+      // Initialize application data
+      await fetchStatus();
+      if (!selectedDate) {
+        await fetchCalendarCampaigns();
+      } else {
+        await loadDateHistory(selectedDate);
+      }
+    } else {
+      errorMsgEl.textContent = result.error || 'Authentication failed.';
+      errorMsgEl.style.display = 'block';
+    }
+  } catch (err) {
+    errorMsgEl.textContent = 'Server connection failed.';
+    errorMsgEl.style.display = 'block';
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i data-lucide="log-in"></i> Sign In';
+    lucide.createIcons();
+  }
+});
+
+// Logout method exposed globally
+window.logout = async function() {
+  try {
+    await fetch('/api/logout', { method: 'POST' });
+  } catch (e) {}
+  localStorage.removeItem('auth_token');
+  document.getElementById('login-username').value = '';
+  document.getElementById('login-password').value = '';
+  showLoginScreen();
+};
+
+// Initial System Boots Gated by Authentication
 (async () => {
+  const token = localStorage.getItem('auth_token');
+  if (!token) {
+    showLoginScreen();
+    return;
+  }
+  
+  hideLoginScreen();
   await fetchStatus();
   if (document.getElementById('tab-composer').classList.contains('active')) {
     if (!selectedDate) {
@@ -1739,8 +1844,10 @@ window.dhNextPage = function() {
       await loadDateHistory(selectedDate);
     }
   }
-  // Set up periodic polling refresh
+  
+  // Set up periodic polling refresh (only when authenticated)
   setInterval(async () => {
+    if (!localStorage.getItem('auth_token')) return;
     await fetchStatus();
     if (document.getElementById('tab-composer').classList.contains('active')) {
       if (!selectedDate) {
