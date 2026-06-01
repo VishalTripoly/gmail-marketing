@@ -1394,18 +1394,42 @@ app.get('/api/subscribe', (req, res) => {
   if (email) {
     db.suppressedEmails = db.suppressedEmails.filter(e => e !== email);
     
-    // Update active campaigns in memory (re-enable if unsubscribed and campaign is still active)
+    // Update active campaigns in memory (re-enable if unsubscribed)
     for (const dateStr of Object.keys(db.campaigns)) {
       const camp = db.campaigns[dateStr];
-      if (camp.status === 'RUNNING' || camp.status === 'PAUSED' || camp.status === 'IDLE') {
-        camp.recipients.forEach(r => {
-          if (r.email.toLowerCase() === email && r.status === 'UNSUBSCRIBED') {
-            r.status = 'PENDING';
-          }
-        });
-      }
+      camp.recipients.forEach(r => {
+        if (r.email.toLowerCase() === email && r.status === 'UNSUBSCRIBED') {
+          r.status = r.sentAt ? 'SENT' : 'PENDING';
+        }
+      });
     }
     saveDatabase();
+
+    // Update history run files on disk
+    try {
+      if (fs.existsSync(HISTORY_DIR)) {
+        const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
+        for (const file of files) {
+          const filePath = path.join(HISTORY_DIR, file);
+          const fileContent = fs.readFileSync(filePath, 'utf8');
+          const run = JSON.parse(fileContent);
+          let updated = false;
+          if (run.recipients) {
+            run.recipients.forEach(r => {
+              if (r.email.toLowerCase() === email && r.status === 'UNSUBSCRIBED') {
+                r.status = r.sentAt ? 'SENT' : 'PENDING';
+                updated = true;
+              }
+            });
+          }
+          if (updated) {
+            fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error updating history run files for subscribe:', err);
+    }
   }
 
   res.send(`
