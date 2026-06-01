@@ -1073,7 +1073,7 @@ function renderRecipientsTable() {
   if (filtered.length === 0) {
     queueTbody.innerHTML = `
       <tr>
-        <td colspan="11" class="table-empty">
+        <td colspan="12" class="table-empty">
           <i data-lucide="search-code"></i>
           <p>No records match your filters or search terms.</p>
         </td>
@@ -1124,10 +1124,11 @@ function renderRecipientsTable() {
       clickCell = `<div class="tracker-cell"><span class="tracker-badge not-clicked">&#128432; No Clicks</span></div>`;
     }
     
-    // Dynamically look for Company, City and Client Type fields in uploaded sheet metadata
+    // Dynamically look for Company, City, Client Type and Website fields in uploaded sheet metadata
     let companyVal = '-';
     let cityVal = '-';
     let clientTypeVal = '-';
+    let websiteVal = '-';
     if (r.data) {
       const companyKey = Object.keys(r.data).find(k => /company/i.test(k));
       if (companyKey) companyVal = r.data[companyKey] || '-';
@@ -1137,6 +1138,9 @@ function renderRecipientsTable() {
       
       const typeKey = Object.keys(r.data).find(k => /type/i.test(k));
       if (typeKey) clientTypeVal = r.data[typeKey] || '-';
+
+      const websiteKey = Object.keys(r.data).find(k => /website|web|site/i.test(k));
+      if (websiteKey) websiteVal = r.data[websiteKey] || '-';
     }
 
     return `
@@ -1147,6 +1151,7 @@ function renderRecipientsTable() {
         <td>${escapeHtml(companyVal)}</td>
         <td>${escapeHtml(cityVal)}</td>
         <td>${escapeHtml(clientTypeVal)}</td>
+        <td>${escapeHtml(websiteVal)}</td>
         <td>
           <span class="badge-status ${statusLower}">
             ${statusLower}

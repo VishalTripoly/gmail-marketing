@@ -19,7 +19,11 @@ const activeSessions = new Set();
 
 // Authorization middleware for administrative APIs
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api') && req.path !== '/api/login' && !req.path.startsWith('/api/track/')) {
+  if (req.path.startsWith('/api') && 
+      req.path !== '/api/login' && 
+      !req.path.startsWith('/api/track/') && 
+      !req.path.startsWith('/api/unsubscribe') && 
+      !req.path.startsWith('/api/subscribe')) {
     const token = req.headers['authorization'] || req.query.token;
     if (!token || !activeSessions.has(token)) {
       return res.status(401).json({ error: 'Unauthorized. Please login.' });
@@ -54,13 +58,26 @@ function generateId(length = 8) {
 }
 
 // Helper to parse body and inject pixel + wrap links
-function wrapEmailBody(body, recipientId, trackingUrl) {
+function wrapEmailBody(body, recipient, trackingUrl) {
   const baseUrl = (trackingUrl || 'http://localhost:3000').replace(/\/$/, '');
+  const recipientId = recipient.id;
+  const recipientEmail = recipient.email;
   
   let html = body;
+  
+  // Replace unsubscribe/subscribe placeholders with absolute tracking endpoints
+  const unsubscribeUrl = `${baseUrl}/api/unsubscribe?email=${encodeURIComponent(recipientEmail)}`;
+  const subscribeUrl = `${baseUrl}/api/subscribe?email=${encodeURIComponent(recipientEmail)}`;
+  
+  html = html
+    .replace(/\?email=CLIENT_EMAIL_HERE&unsubscribe=true/g, unsubscribeUrl)
+    .replace(/\?email=CLIENT_EMAIL_HERE&subscribe=true/g, subscribeUrl)
+    .replace(/{{\s*UnsubscribeURL\s*}}/gi, unsubscribeUrl)
+    .replace(/{{\s*SubscribeURL\s*}}/gi, subscribeUrl);
+
   const isHtml = /<[a-z][\s\S]*>/i.test(body);
   if (!isHtml) {
-    html = body
+    html = html
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -106,7 +123,8 @@ let db = {
     adminUser: 'admin',
     adminPass: 'vishal@9160$'
   },
-  campaigns: {}
+  campaigns: {},
+  suppressedEmails: []
 };
 
 // Database Persistence Helpers
@@ -126,6 +144,7 @@ function loadDatabase() {
         ...parsed.settings 
       };
       db.campaigns = parsed.campaigns || {};
+      db.suppressedEmails = parsed.suppressedEmails || [];
       
       // Migrate old campaign object if present
       if (parsed.campaign && Object.keys(parsed.campaign).length > 0) {
@@ -284,8 +303,9 @@ function generateCSV(recipients) {
         const isCompanyKey = keyLower === 'company' || keyLower === 'company name' || keyLower === 'client company';
         const isCityKey = keyLower === 'city' || keyLower === 'location';
         const isTypeKey = keyLower === 'client type' || keyLower === 'type' || keyLower === 'customer type';
+        const isWebsiteKey = keyLower === 'website' || keyLower === 'web' || keyLower === 'site' || keyLower === 'link' || keyLower === 'website url' || keyLower === 'url';
 
-        if (!isNameDuplicate && !isEmailDuplicate && !isCompanyKey && !isCityKey && !isTypeKey) {
+        if (!isNameDuplicate && !isEmailDuplicate && !isCompanyKey && !isCityKey && !isTypeKey && !isWebsiteKey) {
           dataKeys.add(k);
         }
       });
@@ -300,6 +320,7 @@ function generateCSV(recipients) {
     'Company',
     'City',
     'Client Type',
+    'Website',
     'Status',
     'Sent At',
     'Opened',
@@ -330,6 +351,7 @@ function generateCSV(recipients) {
     let companyVal = '';
     let cityVal = '';
     let clientTypeVal = '';
+    let websiteVal = '';
     
     if (r.data) {
       const companyKey = Object.keys(r.data).find(k => /company/i.test(k));
@@ -340,6 +362,9 @@ function generateCSV(recipients) {
       
       const typeKey = Object.keys(r.data).find(k => /type/i.test(k));
       if (typeKey) clientTypeVal = r.data[typeKey] || '';
+
+      const websiteKey = Object.keys(r.data).find(k => /website|web|site/i.test(k));
+      if (websiteKey) websiteVal = r.data[websiteKey] || '';
     }
 
     const rowValues = [
@@ -349,6 +374,7 @@ function generateCSV(recipients) {
       companyVal,
       cityVal,
       clientTypeVal,
+      websiteVal,
       r.status,
       r.sentAt || '',
       r.opened ? 'Yes' : 'No',
@@ -464,6 +490,15 @@ async function processRunningCampaigns() {
     }
     
     const recipient = campaign.recipients[recipientIndex];
+    
+    // Check if the recipient email is in the suppression list
+    if (db.suppressedEmails && db.suppressedEmails.includes(recipient.email.toLowerCase())) {
+      recipient.status = 'UNSUBSCRIBED';
+      addCampaignLog(campaign, `[Skip] Skipped sending to unsubscribed email: ${recipient.name} <${recipient.email}>`, 'info');
+      saveDatabase();
+      continue; // Skip without waiting/setting nextSendTime delay
+    }
+    
     recipient.status = 'PROCESSING';
     saveDatabase();
     
@@ -487,7 +522,7 @@ async function dispatchEmail(campaign, recipient, dateStr) {
     customizedBody = customizedBody.replace(regex, value || '');
   }
   
-  const wrappedHtmlBody = wrapEmailBody(customizedBody, recipient.id, db.settings.trackingUrl);
+  const wrappedHtmlBody = wrapEmailBody(customizedBody, recipient, db.settings.trackingUrl);
   
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
@@ -769,11 +804,12 @@ app.post('/api/upload-recipients', upload.single('file'), (req, res) => {
         data[k] = String(v || '').trim();
       }
       
+      const isSuppressed = db.suppressedEmails && db.suppressedEmails.includes(email.toLowerCase());
       recipients.push({
         id: generateId(),
         name,
         email,
-        status: 'PENDING',
+        status: isSuppressed ? 'UNSUBSCRIBED' : 'PENDING',
         sentAt: null,
         error: null,
         opened: false,
@@ -1206,6 +1242,253 @@ app.get('/api/track/click/:recipientId', (req, res) => {
   }
   
   res.redirect(targetUrl);
+});
+
+function escapeHtml(str) {
+  return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Endpoint: Public Unsubscribe Page
+app.get('/api/unsubscribe', (req, res) => {
+  const email = (req.query.email || '').trim().toLowerCase();
+  
+  if (email && !db.suppressedEmails.includes(email)) {
+    db.suppressedEmails.push(email);
+  }
+  
+  if (email) {
+    // Update active campaigns in memory
+    for (const dateStr of Object.keys(db.campaigns)) {
+      const camp = db.campaigns[dateStr];
+      camp.recipients.forEach(r => {
+        if (r.email.toLowerCase() === email) {
+          r.status = 'UNSUBSCRIBED';
+        }
+      });
+    }
+    saveDatabase();
+    
+    // Update history run files on disk
+    try {
+      if (fs.existsSync(HISTORY_DIR)) {
+        const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
+        for (const file of files) {
+          const filePath = path.join(HISTORY_DIR, file);
+          const fileContent = fs.readFileSync(filePath, 'utf8');
+          const run = JSON.parse(fileContent);
+          let updated = false;
+          if (run.recipients) {
+            run.recipients.forEach(r => {
+              if (r.email.toLowerCase() === email && r.status !== 'UNSUBSCRIBED') {
+                r.status = 'UNSUBSCRIBED';
+                updated = true;
+              }
+            });
+          }
+          if (updated) {
+            fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error updating history run files for unsubscribe:', err);
+    }
+  }
+
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unsubscribed Successfully</title>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #0f1113;
+      color: #ffffff;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      text-align: center;
+    }
+    .card {
+      background-color: #1A1D20;
+      border-radius: 12px;
+      padding: 40px 30px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      max-width: 450px;
+      width: 90%;
+      border-top: 4px solid #ffca30;
+    }
+    h1 {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      font-size: 22px;
+      margin-bottom: 15px;
+      color: #ffffff;
+    }
+    p {
+      color: #a8b8c8;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 25px;
+    }
+    .email {
+      color: #ffca30;
+      font-weight: 600;
+    }
+    .btn {
+      display: inline-block;
+      background-color: #ffca30;
+      color: #1A1D20;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 30px;
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      letter-spacing: 0.5px;
+    }
+    .btn:hover {
+      background-color: #ffffff;
+      transform: translateY(-2px);
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 11px;
+      color: #6C757D;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size: 40px; margin-bottom: 15px;">✉️</div>
+    <h1>Unsubscribed Successfully</h1>
+    <p>You have been unsubscribed from our mailing list. We won't send marketing emails to <span class="email">${escapeHtml(email)}</span>.</p>
+    <a href="/api/subscribe?email=${encodeURIComponent(email)}" class="btn">Subscribe Again</a>
+    <div class="footer">&copy; 2026 TriPoly Studio. All rights reserved.</div>
+  </div>
+</body>
+</html>
+  `);
+});
+
+// Endpoint: Public Subscribe Page
+app.get('/api/subscribe', (req, res) => {
+  const email = (req.query.email || '').trim().toLowerCase();
+  
+  if (email) {
+    db.suppressedEmails = db.suppressedEmails.filter(e => e !== email);
+    
+    // Update active campaigns in memory (re-enable if unsubscribed and campaign is still active)
+    for (const dateStr of Object.keys(db.campaigns)) {
+      const camp = db.campaigns[dateStr];
+      if (camp.status === 'RUNNING' || camp.status === 'PAUSED' || camp.status === 'IDLE') {
+        camp.recipients.forEach(r => {
+          if (r.email.toLowerCase() === email && r.status === 'UNSUBSCRIBED') {
+            r.status = 'PENDING';
+          }
+        });
+      }
+    }
+    saveDatabase();
+  }
+
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subscribed Successfully</title>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #0f1113;
+      color: #ffffff;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      text-align: center;
+    }
+    .card {
+      background-color: #1A1D20;
+      border-radius: 12px;
+      padding: 40px 30px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      max-width: 450px;
+      width: 90%;
+      border-top: 4px solid #ffca30;
+    }
+    h1 {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      font-size: 22px;
+      margin-bottom: 15px;
+      color: #ffffff;
+    }
+    p {
+      color: #a8b8c8;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 25px;
+    }
+    .email {
+      color: #ffca30;
+      font-weight: 600;
+    }
+    .btn {
+      display: inline-block;
+      background-color: #34c759;
+      color: #ffffff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 30px;
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      letter-spacing: 0.5px;
+    }
+    .btn:hover {
+      background-color: #ffffff;
+      color: #1A1D20;
+      transform: translateY(-2px);
+    }
+    .footer {
+      margin-top: 30px;
+      font-size: 11px;
+      color: #6C757D;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size: 40px; margin-bottom: 15px;">✓</div>
+    <h1>Subscribed Successfully</h1>
+    <p>Thank you! <span class="email">${escapeHtml(email)}</span> has been subscribed to our mailing list.</p>
+    <a href="/api/unsubscribe?email=${encodeURIComponent(email)}" class="btn" style="background-color: #ffca30; color: #1A1D20;">Unsubscribe</a>
+    <div class="footer">&copy; 2026 TriPoly Studio. All rights reserved.</div>
+  </div>
+</body>
+</html>
+  `);
 });
 
 app.listen(PORT, () => {
