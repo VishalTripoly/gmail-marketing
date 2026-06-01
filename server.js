@@ -200,7 +200,7 @@ function getCampaignForDate(dateStr) {
   return db.campaigns[dateStr];
 }
 
-// Helper to mark duplicate email addresses as DELETED so they are not sent emails
+// Helper to mark duplicate email addresses as DUPLICATE so they are not sent emails
 function deduplicateRecipients(campaign) {
   if (!campaign || !campaign.recipients) return;
   const seen = new Set();
@@ -208,19 +208,19 @@ function deduplicateRecipients(campaign) {
   campaign.recipients.forEach(r => {
     const emailLower = r.email.toLowerCase();
     if (seen.has(emailLower)) {
-      if (r.status === 'PENDING') {
-        r.status = 'DELETED';
+      if (r.status === 'PENDING' || r.status === 'UNSUBSCRIBED') {
+        r.status = 'DUPLICATE';
         duplicateCount++;
       }
     } else {
       seen.add(emailLower);
-      if (r.status === 'DELETED') {
+      if (r.status === 'DUPLICATE') {
         r.status = 'PENDING';
       }
     }
   });
   if (duplicateCount > 0) {
-    addCampaignLog(campaign, `Identified and marked ${duplicateCount} duplicate email(s) as DELETED.`, 'info');
+    addCampaignLog(campaign, `Identified and marked ${duplicateCount} duplicate email(s) as DUPLICATE.`, 'info');
   }
 }
 
@@ -876,7 +876,8 @@ app.post('/api/campaign/start', (req, res) => {
       campaign.openedCount = 0;
       campaign.clickedCount = 0;
       campaign.recipients.forEach(r => {
-        r.status = 'PENDING';
+        const isSuppressed = db.suppressedEmails && db.suppressedEmails.includes(r.email.toLowerCase());
+        r.status = isSuppressed ? 'UNSUBSCRIBED' : 'PENDING';
         r.sentAt = null;
         r.error = null;
         r.opened = false;
@@ -943,7 +944,8 @@ app.post('/api/campaign/reset', (req, res) => {
   campaign.openedCount = 0;
   campaign.clickedCount = 0;
   campaign.recipients.forEach(r => {
-    r.status = 'PENDING';
+    const isSuppressed = db.suppressedEmails && db.suppressedEmails.includes(r.email.toLowerCase());
+    r.status = isSuppressed ? 'UNSUBSCRIBED' : 'PENDING';
     r.sentAt = null;
     r.error = null;
     r.opened = false;
@@ -1261,7 +1263,7 @@ app.get('/api/unsubscribe', (req, res) => {
     for (const dateStr of Object.keys(db.campaigns)) {
       const camp = db.campaigns[dateStr];
       camp.recipients.forEach(r => {
-        if (r.email.toLowerCase() === email) {
+        if (r.email.toLowerCase() === email && r.status !== 'DUPLICATE' && r.status !== 'DELETED') {
           r.status = 'UNSUBSCRIBED';
         }
       });
@@ -1279,7 +1281,10 @@ app.get('/api/unsubscribe', (req, res) => {
           let updated = false;
           if (run.recipients) {
             run.recipients.forEach(r => {
-              if (r.email.toLowerCase() === email && r.status !== 'UNSUBSCRIBED') {
+              if (r.email.toLowerCase() === email && 
+                  r.status !== 'UNSUBSCRIBED' && 
+                  r.status !== 'DUPLICATE' && 
+                  r.status !== 'DELETED') {
                 r.status = 'UNSUBSCRIBED';
                 updated = true;
               }
