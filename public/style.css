@@ -1124,7 +1124,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .table-container {
   overflow-x: auto;
-  max-height: 380px;
 }
 
 .data-table {

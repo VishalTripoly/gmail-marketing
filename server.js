@@ -387,7 +387,7 @@ function getNextValidScheduleDelayForCampaign(campaign, dateStr) {
   }
   
   if (campaign.scheduleTime) {
-    const [startH, startM] = campaign.scheduleTime.split(':').map(Number);
+    const [startH, startM] = String(campaign.scheduleTime).split(':').map(Number);
     const startDateTime = new Date(calendarDate);
     startDateTime.setHours(startH, startM, 0, 0);
     if (startDateTime > target) {
@@ -395,8 +395,8 @@ function getNextValidScheduleDelayForCampaign(campaign, dateStr) {
     }
   }
   
-  const [startH, startM] = (campaign.scheduleAllowedStart || '09:00').split(':').map(Number);
-  const [endH, endM] = (campaign.scheduleAllowedEnd || '18:00').split(':').map(Number);
+  const [startH, startM] = String(campaign.scheduleAllowedStart || '09:00').split(':').map(Number);
+  const [endH, endM] = String(campaign.scheduleAllowedEnd || '18:00').split(':').map(Number);
   const allowedDays = campaign.scheduleDays || [1, 2, 3, 4, 5];
   
   for (let i = 0; i < 10; i++) {
@@ -859,6 +859,7 @@ app.post('/api/campaign/start', (req, res) => {
   }
   
   campaign.status = 'RUNNING';
+  campaign.nextSendTime = null;
   saveDatabase();
   res.json({ success: true });
 });
@@ -878,6 +879,7 @@ app.post('/api/campaign/save', (req, res) => {
   if (scheduleAllowedEnd !== undefined) campaign.scheduleAllowedEnd = scheduleAllowedEnd;
   if (scheduleDays !== undefined) campaign.scheduleDays = Array.isArray(scheduleDays) ? scheduleDays.map(Number) : [1, 2, 3, 4, 5];
   
+  campaign.nextSendTime = null;
   addCampaignLog(campaign, 'Campaign draft and schedule settings saved.', 'info');
   saveDatabase();
   res.json({ success: true });

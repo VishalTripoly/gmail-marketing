@@ -492,19 +492,12 @@ intervalSlider.addEventListener('input', (e) => {
 });
 
 saveSettingsBtn.addEventListener('click', async () => {
-  const selectedDays = Array.from(document.querySelectorAll('input[name="schedule-day"]:checked')).map(el => parseInt(el.value));
-  
   const payload = {
     smtpUser: smtpUserInput.value.trim(),
     smtpPass: smtpPassInput.value,
     intervalMinutes: parseFloat(intervalSlider.value),
     testEmail: testEmailTargetInput.value.trim(),
     trackingUrl: trackingUrlInput.value.trim(),
-    scheduleEnabled: document.getElementById('schedule-enabled').checked,
-    scheduleStartDate: document.getElementById('schedule-start-date').value,
-    scheduleAllowedStart: document.getElementById('schedule-allowed-start').value,
-    scheduleAllowedEnd: document.getElementById('schedule-allowed-end').value,
-    scheduleDays: selectedDays,
     adminUser: document.getElementById('admin-user').value.trim(),
     adminPass: document.getElementById('admin-pass').value
   };
