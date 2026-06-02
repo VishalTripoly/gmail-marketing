@@ -1828,6 +1828,18 @@ window.logout = async function() {
 
 // Initial System Boots Gated by Authentication
 (async () => {
+  // Silent timezone offset sync with server
+  try {
+    const tzOffset = new Date().getTimezoneOffset();
+    await fetch('/api/settings/timezone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timezoneOffset: tzOffset })
+    });
+  } catch (e) {
+    console.error('Failed to sync timezone with server:', e);
+  }
+
   const token = localStorage.getItem('auth_token');
   if (!token) {
     showLoginScreen();

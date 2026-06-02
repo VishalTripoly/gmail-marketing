@@ -21,6 +21,7 @@ const activeSessions = new Set();
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') && 
       req.path !== '/api/login' && 
+      req.path !== '/api/settings/timezone' &&
       !req.path.startsWith('/api/track/') && 
       !req.path.startsWith('/api/unsubscribe') && 
       !req.path.startsWith('/api/subscribe')) {
@@ -121,7 +122,8 @@ let db = {
     testEmail: '',
     trackingUrl: '',
     adminUser: 'admin',
-    adminPass: 'vishal@9160$'
+    adminPass: 'vishal@9160$',
+    clientTimezoneOffset: 0
   },
   campaigns: {},
   suppressedEmails: []
@@ -402,7 +404,11 @@ function getNextValidScheduleDelayForCampaign(campaign, dateStr) {
   }
   
   const now = new Date();
-  let target = new Date();
+  const clientOffset = db.settings.clientTimezoneOffset || 0; // in minutes
+  
+  // Translate server time "now" to client local time context for scheduling check
+  const clientNow = new Date(now.getTime() - clientOffset * 60 * 1000);
+  let target = new Date(clientNow.getTime());
   
   // Parse calendar date
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -444,10 +450,12 @@ function getNextValidScheduleDelayForCampaign(campaign, dateStr) {
     endOfWindow.setHours(endH, endM, 0, 0);
     
     if (testDate < startOfWindow) {
-      const delay = startOfWindow.getTime() - now.getTime();
+      const serverTargetTime = new Date(startOfWindow.getTime() + clientOffset * 60 * 1000);
+      const delay = serverTargetTime.getTime() - now.getTime();
       return Math.max(0, delay);
     } else if (testDate >= startOfWindow && testDate <= endOfWindow) {
-      const delay = testDate.getTime() - now.getTime();
+      const serverTargetTime = new Date(testDate.getTime() + clientOffset * 60 * 1000);
+      const delay = serverTargetTime.getTime() - now.getTime();
       return Math.max(0, delay);
     } else {
       continue;
@@ -473,7 +481,11 @@ async function processRunningCampaigns() {
     const delayMs = getNextValidScheduleDelayForCampaign(campaign, dateStr);
     if (delayMs > 0) {
       const wakeUpTime = new Date(Date.now() + delayMs);
-      addCampaignLog(campaign, `⏳ Outside allowed sending hours/days. Campaign paused until next valid window: ${wakeUpTime.toLocaleString()}`, 'info');
+      const clientOffset = db.settings.clientTimezoneOffset || 0;
+      // Convert UTC wakeup time back to client local time for display in logs
+      const wakeUpTimeLocal = new Date(wakeUpTime.getTime() - clientOffset * 60 * 1000);
+      const timeStr = wakeUpTimeLocal.toLocaleString('en-US', { hour12: true });
+      addCampaignLog(campaign, `⏳ Outside allowed sending hours/days. Campaign paused until next valid window: ${timeStr}`, 'info');
       campaign.nextSendTime = Date.now() + delayMs;
       saveDatabase();
       continue;
@@ -704,6 +716,16 @@ app.post('/api/settings', (req, res) => {
       adminPass: db.settings.adminPass ? '********' : ''
     }
   });
+});
+
+// API Route: Save Client Timezone Offset
+app.post('/api/settings/timezone', (req, res) => {
+  const { timezoneOffset } = req.body;
+  if (timezoneOffset !== undefined) {
+    db.settings.clientTimezoneOffset = Number(timezoneOffset);
+    saveDatabase();
+  }
+  res.json({ success: true });
 });
 
 // API Route: Authenticate Admin User
