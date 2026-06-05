@@ -538,10 +538,23 @@ async function processRunningCampaigns() {
       
       const recipient = campaign.recipients[recipientIndex];
       
+      // Validate recipient email address existence and format
+      const email = recipient.email ? String(recipient.email).trim() : '';
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!email || !emailRegex.test(email)) {
+        recipient.status = 'FAILED';
+        recipient.sentAt = new Date().toISOString();
+        recipient.error = email ? 'Invalid email address format' : 'Email address is missing or empty';
+        campaign.failedCount = (campaign.failedCount || 0) + 1;
+        addCampaignLog(user, campaign, `✗ Skip: Failed to send email to ${recipient.name}: ${recipient.error}`, 'error');
+        saveDatabase();
+        continue; // Proceed to next recipient immediately
+      }
+      
       // Check if the recipient email is in the suppression list
-      if (user.suppressedEmails && user.suppressedEmails.includes(recipient.email.toLowerCase())) {
+      if (user.suppressedEmails && user.suppressedEmails.includes(email.toLowerCase())) {
         recipient.status = 'UNSUBSCRIBED';
-        addCampaignLog(user, campaign, `[Skip] Skipped sending to unsubscribed email: ${recipient.name} <${recipient.email}>`, 'info');
+        addCampaignLog(user, campaign, `[Skip] Skipped sending to unsubscribed email: ${recipient.name} <${email}>`, 'info');
         saveDatabase();
         continue; // Skip without waiting/setting nextSendTime delay
       }
