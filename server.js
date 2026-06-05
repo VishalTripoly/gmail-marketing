@@ -5,6 +5,8 @@ const xlsx = require('xlsx');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
+const { checkBouncesForUser } = require('./bounce_parser');
+
 
 const app = express();
 const PORT = process.env.PORT || 3050;
@@ -703,6 +705,26 @@ async function sendOTPEmail(email, code) {
 
 // Start periodic processing (every 3 seconds)
 setInterval(processRunningCampaigns, 3000);
+
+async function checkBouncesForAllUsers() {
+  if (!db.users) return;
+  console.log('[Bounce Checker] Starting background bounce checks...');
+  for (const userId of Object.keys(db.users)) {
+    const user = db.users[userId];
+    if (user.status !== 'ACTIVE') continue;
+    try {
+      await checkBouncesForUser(user, db, saveDatabase, (usr, cmp, msg, type) => addCampaignLog(usr, cmp, msg, type), HISTORY_DIR);
+    } catch (e) {
+      console.error(`[Bounce Checker] Error processing bounces for ${user.email}:`, e);
+    }
+  }
+}
+
+// Start periodic bounce checks (every 5 minutes)
+setInterval(checkBouncesForAllUsers, 5 * 60 * 1000);
+// Also trigger one run on startup (wait 10 seconds for initial initialization)
+setTimeout(checkBouncesForAllUsers, 10000);
+
 
 // Load DB configurations
 loadDatabase();
