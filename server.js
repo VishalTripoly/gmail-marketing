@@ -153,6 +153,37 @@ function loadDatabase() {
   } catch (err) {
     console.error('Error loading database:', err);
   }
+
+  // Migrate any legacy history files from data/history/*.json to data/history/user_migrated/
+  try {
+    const defaultUserId = 'user_migrated';
+    const migratedHistoryDir = path.join(HISTORY_DIR, defaultUserId);
+    if (fs.existsSync(HISTORY_DIR)) {
+      const files = fs.readdirSync(HISTORY_DIR);
+      let hasLegacyFiles = false;
+      for (const file of files) {
+        if (file.endsWith('.json') && fs.statSync(path.join(HISTORY_DIR, file)).isFile()) {
+          hasLegacyFiles = true;
+          break;
+        }
+      }
+      if (hasLegacyFiles) {
+        if (!fs.existsSync(migratedHistoryDir)) {
+          fs.mkdirSync(migratedHistoryDir, { recursive: true });
+        }
+        for (const file of files) {
+          const oldPath = path.join(HISTORY_DIR, file);
+          if (file.endsWith('.json') && fs.statSync(oldPath).isFile()) {
+            const newPath = path.join(migratedHistoryDir, file);
+            fs.renameSync(oldPath, newPath);
+            console.log(`Migrated legacy history run file: ${file} -> user_migrated/`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error migrating legacy history files:', err);
+  }
 }
 
 function saveDatabase() {
