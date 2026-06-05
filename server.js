@@ -925,14 +925,17 @@ app.post('/api/login', (req, res) => {
     return res.json({ success: true, token, role: 'admin' });
   }
   
-  // Try standard user login via OTP
+  // Try standard user login via Password or OTP
   const user = Object.values(db.users).find(u => u.email.toLowerCase() === username.toLowerCase());
   if (user) {
-    if (user.loginOtp !== password) {
-      return res.status(401).json({ error: 'Invalid OTP.' });
-    }
-    if (user.loginOtpExpiry && user.loginOtpExpiry < Date.now()) {
-      return res.status(401).json({ error: 'OTP has expired. Please request a new one.' });
+    const isPasswordValid = user.password === password;
+    const isOtpValid = user.loginOtp && user.loginOtp === password && (!user.loginOtpExpiry || user.loginOtpExpiry >= Date.now());
+    
+    if (!isPasswordValid && !isOtpValid) {
+      if (user.loginOtp === password && user.loginOtpExpiry && user.loginOtpExpiry < Date.now()) {
+        return res.status(401).json({ error: 'OTP has expired. Please request a new one.' });
+      }
+      return res.status(401).json({ error: 'Invalid password or OTP.' });
     }
     
     if (!user.verified) {
@@ -945,16 +948,18 @@ app.post('/api/login', (req, res) => {
       return res.status(403).json({ error: 'Your account has been deactivated.', status: 'DEACTIVATED' });
     }
     
-    user.loginOtp = null;
-    user.loginOtpExpiry = null;
-    saveDatabase();
+    if (isOtpValid) {
+      user.loginOtp = null;
+      user.loginOtpExpiry = null;
+      saveDatabase();
+    }
     
     const token = 'USER_' + generateId(32);
     activeSessions.set(token, { userId: user.id, role: 'user' });
     return res.json({ success: true, token, role: 'user' });
   }
   
-  return res.status(401).json({ error: 'Invalid email address or OTP.' });
+  return res.status(401).json({ error: 'Invalid email address, password, or OTP.' });
 });
 
 // API Route: Logout
