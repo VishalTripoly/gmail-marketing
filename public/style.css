@@ -1240,9 +1240,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-size: 0.75rem;
   color: #fca5a5;
   max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
+  white-space: normal;
 }
 
 /* Results text */

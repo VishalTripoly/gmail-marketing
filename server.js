@@ -13,34 +13,25 @@ const PORT = process.env.PORT || 3050;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Session Store for Admin Panel Authentication
-const activeSessions = new Set();
-
-// Authorization middleware for administrative APIs
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api') && 
-      req.path !== '/api/login' && 
-      req.path !== '/api/settings/timezone' &&
-      !req.path.startsWith('/api/track/') && 
-      !req.path.startsWith('/api/unsubscribe') && 
-      !req.path.startsWith('/api/subscribe')) {
-    const token = req.headers['authorization'] || req.query.token;
-    if (!token || !activeSessions.has(token)) {
-      return res.status(401).json({ error: 'Unauthorized. Please login.' });
-    }
-  }
-  next();
-});
-
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Configure Multer for Excel/CSV file upload parsing
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
+// Session Store mapping token -> { userId, role: 'user' | 'admin' }
+const activeSessions = new Map();
+
+// Global Database State
+let db = {
+  masterAdmin: {
+    username: 'admin',
+    password: 'vishal@9160$'
+  },
+  users: {}
+};
+
 const DB_PATH = path.join(__dirname, 'data', 'database.json');
-const LOG_FILE_PATH = path.join(__dirname, 'data', 'campaign.log');
 const HISTORY_DIR = path.join(__dirname, 'data', 'history');
 
 // Ensure history directory exists
@@ -113,22 +104,6 @@ function wrapEmailBody(body, recipient, trackingUrl) {
   return html;
 }
 
-// Global Database State
-let db = {
-  settings: {
-    smtpUser: '',
-    smtpPass: '',
-    intervalMinutes: 3,
-    testEmail: '',
-    trackingUrl: '',
-    adminUser: 'admin',
-    adminPass: 'vishal@9160$',
-    clientTimezoneOffset: 0
-  },
-  campaigns: {},
-  suppressedEmails: []
-};
-
 // Database Persistence Helpers
 function loadDatabase() {
   try {
@@ -139,22 +114,38 @@ function loadDatabase() {
       const data = fs.readFileSync(DB_PATH, 'utf8');
       const parsed = JSON.parse(data);
       
-      db.settings = { 
-        adminUser: 'admin',
-        adminPass: 'vishal@9160$',
-        ...db.settings, 
-        ...parsed.settings 
-      };
-      db.campaigns = parsed.campaigns || {};
-      db.suppressedEmails = parsed.suppressedEmails || [];
-      
-      // Migrate old campaign object if present
-      if (parsed.campaign && Object.keys(parsed.campaign).length > 0) {
-        const today = new Date();
-        const dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-        if (!db.campaigns[dateStr]) {
-          db.campaigns[dateStr] = parsed.campaign;
-        }
+      if (parsed.users) {
+        db.users = parsed.users;
+        db.masterAdmin = parsed.masterAdmin || { username: 'admin', password: 'vishal@9160$' };
+      } else {
+        // Migrate old database schema to multi-user
+        const defaultUserEmail = parsed.settings && parsed.settings.smtpUser ? parsed.settings.smtpUser : 'migrated@example.com';
+        const defaultUserId = 'user_migrated';
+        db.users = {
+          [defaultUserId]: {
+            id: defaultUserId,
+            email: defaultUserEmail,
+            password: parsed.settings && parsed.settings.adminPass ? parsed.settings.adminPass : 'vishal@9160$',
+            verified: true,
+            status: 'ACTIVE',
+            plan: 'PRO',
+            settings: {
+              smtpUser: parsed.settings && parsed.settings.smtpUser ? parsed.settings.smtpUser : '',
+              smtpPass: parsed.settings && parsed.settings.smtpPass ? parsed.settings.smtpPass : '',
+              intervalMinutes: parsed.settings && parsed.settings.intervalMinutes ? parsed.settings.intervalMinutes : 3,
+              testEmail: parsed.settings && parsed.settings.testEmail ? parsed.settings.testEmail : '',
+              trackingUrl: parsed.settings && parsed.settings.trackingUrl ? parsed.settings.trackingUrl : '',
+              clientTimezoneOffset: parsed.settings && parsed.settings.clientTimezoneOffset ? parsed.settings.clientTimezoneOffset : 0
+            },
+            campaigns: parsed.campaigns || {},
+            suppressedEmails: parsed.suppressedEmails || []
+          }
+        };
+        db.masterAdmin = {
+          username: parsed.settings && parsed.settings.adminUser ? parsed.settings.adminUser : 'admin',
+          password: parsed.settings && parsed.settings.adminPass ? parsed.settings.adminPass : 'vishal@9160$'
+        };
+        saveDatabase();
       }
     } else {
       saveDatabase();
@@ -172,15 +163,15 @@ function saveDatabase() {
   }
 }
 
-// Helper to get or create campaign for a specific date
-function getCampaignForDate(dateStr) {
+// Helper to get or create campaign for a user
+function getCampaignForDate(user, dateStr) {
   if (!dateStr) {
     const today = new Date();
     dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
   }
-  if (!db.campaigns) db.campaigns = {};
-  if (!db.campaigns[dateStr]) {
-    db.campaigns[dateStr] = {
+  if (!user.campaigns) user.campaigns = {};
+  if (!user.campaigns[dateStr]) {
+    user.campaigns[dateStr] = {
       status: 'IDLE',
       subject: '',
       body: '',
@@ -199,11 +190,11 @@ function getCampaignForDate(dateStr) {
       logs: []
     };
   }
-  return db.campaigns[dateStr];
+  return user.campaigns[dateStr];
 }
 
 // Helper to mark duplicate email addresses as DUPLICATE so they are not sent emails
-function deduplicateRecipients(campaign) {
+function deduplicateRecipients(user, campaign) {
   if (!campaign || !campaign.recipients) return;
   const seen = new Set();
   let duplicateCount = 0;
@@ -222,12 +213,12 @@ function deduplicateRecipients(campaign) {
     }
   });
   if (duplicateCount > 0) {
-    addCampaignLog(campaign, `Identified and marked ${duplicateCount} duplicate email(s) as DUPLICATE.`, 'info');
+    addCampaignLog(user, campaign, `Identified and marked ${duplicateCount} duplicate email(s) as DUPLICATE.`, 'info');
   }
 }
 
-// Campaign-specific logging helper
-function addCampaignLog(campaign, message, type = 'info') {
+// User-specific campaign logging helper
+function addCampaignLog(user, campaign, message, type = 'info') {
   const timestamp = new Date().toISOString();
   const logEntry = { timestamp, type, message };
   
@@ -237,10 +228,14 @@ function addCampaignLog(campaign, message, type = 'info') {
     campaign.logs.pop();
   }
   
-  console.log(`[${type.toUpperCase()}] ${message}`);
+  console.log(`[${user.email}] [${type.toUpperCase()}] ${message}`);
   
   try {
-    fs.appendFileSync(LOG_FILE_PATH, `[${timestamp}] [${type.toUpperCase()}] ${message}\n`, 'utf8');
+    const userLogDir = path.join(__dirname, 'data', 'logs', user.id);
+    if (!fs.existsSync(userLogDir)) {
+      fs.mkdirSync(userLogDir, { recursive: true });
+    }
+    fs.appendFileSync(path.join(userLogDir, 'campaign.log'), `[${timestamp}] [${type.toUpperCase()}] ${message}\n`, 'utf8');
   } catch (err) {
     console.error('Failed to write to campaign.log:', err);
   }
@@ -249,21 +244,25 @@ function addCampaignLog(campaign, message, type = 'info') {
 }
 
 // Archive Campaign Run
-function archiveCampaignRun(campaign, dateStr) {
+function archiveCampaignRun(user, campaign, dateStr) {
   try {
     if (!campaign.recipients || campaign.recipients.length === 0) {
       return;
     }
     const date = new Date();
     const formattedDate = date.getFullYear() + '-' +
-      String(date.getMonth() + 1).padStart(2, '0') + '-' +
+      String(date.getMonth() + 1).padStart(2, '0') + '_' +
       String(date.getDate()).padStart(2, '0') + '_' +
       String(date.getHours()).padStart(2, '0') + '-' +
       String(date.getMinutes()).padStart(2, '0') + '-' +
       String(date.getSeconds()).padStart(2, '0');
       
     const runId = `run_${dateStr}_${formattedDate}`;
-    const runFilePath = path.join(HISTORY_DIR, `${runId}.json`);
+    const userHistoryDir = path.join(HISTORY_DIR, user.id);
+    if (!fs.existsSync(userHistoryDir)) {
+      fs.mkdirSync(userHistoryDir, { recursive: true });
+    }
+    const runFilePath = path.join(userHistoryDir, `${runId}.json`);
     
     const runData = {
       runId,
@@ -279,7 +278,7 @@ function archiveCampaignRun(campaign, dateStr) {
     };
     
     fs.writeFileSync(runFilePath, JSON.stringify(runData, null, 2), 'utf8');
-    addCampaignLog(campaign, `Campaign run archived successfully: ${runId}`, 'info');
+    addCampaignLog(user, campaign, `Campaign run archived successfully: ${runId}`, 'info');
   } catch (err) {
     console.error('Failed to archive campaign run:', err);
   }
@@ -398,13 +397,13 @@ function generateCSV(recipients) {
 }
 
 // Helper to check and calculate scheduling delays
-function getNextValidScheduleDelayForCampaign(campaign, dateStr) {
+function getNextValidScheduleDelayForCampaign(user, campaign, dateStr) {
   if (!campaign.scheduleEnabled) {
     return 0;
   }
   
   const now = new Date();
-  const clientOffset = db.settings.clientTimezoneOffset || 0; // in minutes
+  const clientOffset = user.settings.clientTimezoneOffset || 0; // in minutes
   
   // Translate server time "now" to client local time context for scheduling check
   const clientNow = new Date(now.getTime() - clientOffset * 60 * 1000);
@@ -468,57 +467,63 @@ function getNextValidScheduleDelayForCampaign(campaign, dateStr) {
 // Background Dispatcher Loop
 async function processRunningCampaigns() {
   const now = Date.now();
-  if (!db.campaigns) return;
+  if (!db.users) return;
   
-  for (const dateStr of Object.keys(db.campaigns)) {
-    const campaign = db.campaigns[dateStr];
-    if (campaign.status !== 'RUNNING') continue;
+  for (const userId of Object.keys(db.users)) {
+    const user = db.users[userId];
+    if (user.status !== 'ACTIVE') continue;
+    if (!user.campaigns) continue;
     
-    if (campaign.nextSendTime && now < campaign.nextSendTime) {
-      continue;
-    }
-    
-    const delayMs = getNextValidScheduleDelayForCampaign(campaign, dateStr);
-    if (delayMs > 0) {
-      const wakeUpTime = new Date(Date.now() + delayMs);
-      const clientOffset = db.settings.clientTimezoneOffset || 0;
-      // Convert UTC wakeup time back to client local time for display in logs
-      const wakeUpTimeLocal = new Date(wakeUpTime.getTime() - clientOffset * 60 * 1000);
-      const timeStr = wakeUpTimeLocal.toLocaleString('en-US', { hour12: true });
-      addCampaignLog(campaign, `⏳ Outside allowed sending hours/days. Campaign paused until next valid window: ${timeStr}`, 'info');
-      campaign.nextSendTime = Date.now() + delayMs;
+    for (const dateStr of Object.keys(user.campaigns)) {
+      const campaign = user.campaigns[dateStr];
+      if (campaign.status !== 'RUNNING') continue;
+      
+      if (campaign.nextSendTime && now < campaign.nextSendTime) {
+        continue;
+      }
+      
+      const delayMs = getNextValidScheduleDelayForCampaign(user, campaign, dateStr);
+      if (delayMs > 0) {
+        const wakeUpTime = new Date(Date.now() + delayMs);
+        const clientOffset = user.settings.clientTimezoneOffset || 0;
+        // Convert UTC wakeup time back to client local time for display in logs
+        const wakeUpTimeLocal = new Date(wakeUpTime.getTime() - clientOffset * 60 * 1000);
+        const timeStr = wakeUpTimeLocal.toLocaleString('en-US', { hour12: true });
+        addCampaignLog(user, campaign, `⏳ Outside allowed sending hours/days. Campaign paused until next valid window: ${timeStr}`, 'info');
+        campaign.nextSendTime = Date.now() + delayMs;
+        saveDatabase();
+        continue;
+      }
+      
+      const recipientIndex = campaign.recipients.findIndex(r => r.status === 'PENDING');
+      if (recipientIndex === -1) {
+        campaign.status = 'COMPLETED';
+        campaign.nextSendTime = null;
+        saveDatabase();
+        archiveCampaignRun(user, campaign, dateStr);
+        addCampaignLog(user, campaign, '🎉 Campaign completed! All recipients have been processed. Campaign has stopped.', 'success');
+        continue;
+      }
+      
+      const recipient = campaign.recipients[recipientIndex];
+      
+      // Check if the recipient email is in the suppression list
+      if (user.suppressedEmails && user.suppressedEmails.includes(recipient.email.toLowerCase())) {
+        recipient.status = 'UNSUBSCRIBED';
+        addCampaignLog(user, campaign, `[Skip] Skipped sending to unsubscribed email: ${recipient.name} <${recipient.email}>`, 'info');
+        saveDatabase();
+        continue; // Skip without waiting/setting nextSendTime delay
+      }
+      
+      recipient.status = 'PROCESSING';
       saveDatabase();
-      continue;
+      
+      dispatchEmail(user, campaign, recipient, dateStr);
     }
-    
-    const recipientIndex = campaign.recipients.findIndex(r => r.status === 'PENDING');
-    if (recipientIndex === -1) {
-      campaign.status = 'COMPLETED';
-      campaign.nextSendTime = null;
-      saveDatabase();
-      archiveCampaignRun(campaign, dateStr);
-      addCampaignLog(campaign, '🎉 Campaign completed! All recipients have been processed. Campaign has stopped.', 'success');
-      continue;
-    }
-    
-    const recipient = campaign.recipients[recipientIndex];
-    
-    // Check if the recipient email is in the suppression list
-    if (db.suppressedEmails && db.suppressedEmails.includes(recipient.email.toLowerCase())) {
-      recipient.status = 'UNSUBSCRIBED';
-      addCampaignLog(campaign, `[Skip] Skipped sending to unsubscribed email: ${recipient.name} <${recipient.email}>`, 'info');
-      saveDatabase();
-      continue; // Skip without waiting/setting nextSendTime delay
-    }
-    
-    recipient.status = 'PROCESSING';
-    saveDatabase();
-    
-    dispatchEmail(campaign, recipient, dateStr);
   }
 }
 
-async function dispatchEmail(campaign, recipient, dateStr) {
+async function dispatchEmail(user, campaign, recipient, dateStr) {
   let customizedSubject = campaign.subject;
   let customizedBody = campaign.body;
   
@@ -534,23 +539,23 @@ async function dispatchEmail(campaign, recipient, dateStr) {
     customizedBody = customizedBody.replace(regex, value || '');
   }
   
-  const wrappedHtmlBody = wrapEmailBody(customizedBody, recipient, db.settings.trackingUrl);
+  const wrappedHtmlBody = wrapEmailBody(customizedBody, recipient, user.settings.trackingUrl);
   
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
     auth: {
-      user: db.settings.smtpUser,
-      pass: db.settings.smtpPass
+      user: user.settings.smtpUser,
+      pass: user.settings.smtpPass
     }
   });
   
   try {
-    addCampaignLog(campaign, `Sending email to ${recipient.name} <${recipient.email}>...`, 'info');
+    addCampaignLog(user, campaign, `Sending email to ${recipient.name} <${recipient.email}>...`, 'info');
     
     const mailOptions = {
-      from: `"${db.settings.smtpUser.split('@')[0]}" <${db.settings.smtpUser}>`,
+      from: `"${user.settings.smtpUser.split('@')[0]}" <${user.settings.smtpUser}>`,
       to: recipient.email,
       subject: customizedSubject,
       html: wrappedHtmlBody
@@ -562,42 +567,161 @@ async function dispatchEmail(campaign, recipient, dateStr) {
     recipient.sentAt = new Date().toISOString();
     recipient.error = null;
     campaign.sentCount++;
-    addCampaignLog(campaign, `✓ Email successfully sent to ${recipient.name} <${recipient.email}>`, 'success');
+    addCampaignLog(user, campaign, `✓ Email successfully sent to ${recipient.name} <${recipient.email}>`, 'success');
   } catch (error) {
     recipient.status = 'FAILED';
     recipient.sentAt = new Date().toISOString();
     recipient.error = error.message;
     campaign.failedCount++;
-    addCampaignLog(campaign, `✗ Failed to send email to ${recipient.name} <${recipient.email}>: ${error.message}`, 'error');
+    addCampaignLog(user, campaign, `✗ Failed to send email to ${recipient.name} <${recipient.email}>: ${error.message}`, 'error');
   }
   
-  const delayMs = db.settings.intervalMinutes * 60 * 1000;
+  const delayMs = user.settings.intervalMinutes * 60 * 1000;
   campaign.nextSendTime = Date.now() + delayMs;
   saveDatabase();
+}
+
+async function sendVerificationEmail(email, code) {
+  // Try to find any active user's SMTP settings to send verification email
+  let smtpConfig = null;
+  for (const uid of Object.keys(db.users)) {
+    const u = db.users[uid];
+    if (u.settings && u.settings.smtpUser && u.settings.smtpPass) {
+      smtpConfig = u.settings;
+      break;
+    }
+  }
+  
+  if (smtpConfig) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: smtpConfig.smtpUser,
+          pass: smtpConfig.smtpPass
+        }
+      });
+      await transporter.sendMail({
+        from: `"${smtpConfig.smtpUser.split('@')[0]}" <${smtpConfig.smtpUser}>`,
+        to: email,
+        subject: 'Email Verification Code - Gmail Marketing System',
+        text: `Your email verification code is: ${code}\n\nPlease enter this code to complete registration.`
+      });
+      console.log(`[VERIFICATION EMAIL SENT] to ${email} (Code: ${code})`);
+      return;
+    } catch (e) {
+      console.error('Failed to send verification email via user SMTP:', e.message);
+    }
+  }
+  
+  console.log(`\n==================================================\n[MOCK EMAIL VERIFICATION] to: ${email}\nVerification Code: ${code}\n==================================================\n`);
+}
+
+async function sendOTPEmail(email, code) {
+  // Try to find any active user's SMTP settings to send OTP email
+  let smtpConfig = null;
+  for (const uid of Object.keys(db.users)) {
+    const u = db.users[uid];
+    if (u.settings && u.settings.smtpUser && u.settings.smtpPass) {
+      smtpConfig = u.settings;
+      break;
+    }
+  }
+  
+  if (smtpConfig) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: smtpConfig.smtpUser,
+          pass: smtpConfig.smtpPass
+        }
+      });
+      await transporter.sendMail({
+        from: `"${smtpConfig.smtpUser.split('@')[0]}" <${smtpConfig.smtpUser}>`,
+        to: email,
+        subject: 'Login OTP Code - Gmail Marketing System',
+        text: `Your login OTP code is: ${code}\n\nThis OTP will expire in 15 minutes.`
+      });
+      console.log(`[OTP EMAIL SENT] to ${email} (OTP: ${code})`);
+      return;
+    } catch (e) {
+      console.error('Failed to send OTP email via user SMTP:', e.message);
+    }
+  }
+  
+  console.log(`\n==================================================\n[MOCK EMAIL OTP] to: ${email}\nLogin OTP Code: ${code} (Expires in 15 minutes)\n==================================================\n`);
 }
 
 // Start periodic processing (every 3 seconds)
 setInterval(processRunningCampaigns, 3000);
 
-// Load DB configurations and resume active campaigns
+// Load DB configurations
 loadDatabase();
 
-// API Route: Get Scheduled Campaigns List (for calendar indicators)
+// Authorization middleware for administrative/user APIs
+app.use((req, res, next) => {
+  const publicPaths = [
+    '/api/login',
+    '/api/login/send-otp',
+    '/api/signup',
+    '/api/verify-email',
+    '/api/complete-payment',
+    '/api/settings/timezone'
+  ];
+  
+  if (req.path.startsWith('/api') && 
+      !publicPaths.includes(req.path) &&
+      !req.path.startsWith('/api/track/') && 
+      !req.path.startsWith('/api/unsubscribe') && 
+      !req.path.startsWith('/api/subscribe')) {
+      
+    const token = req.headers['authorization'] || req.query.token;
+    if (!token || !activeSessions.has(token)) {
+      return res.status(401).json({ error: 'Unauthorized. Please login.' });
+    }
+    
+    const session = activeSessions.get(token);
+    req.session = session;
+    
+    if (session.role === 'user') {
+      const user = db.users[session.userId];
+      if (!user) {
+        return res.status(401).json({ error: 'User does not exist.' });
+      }
+      if (user.status === 'DEACTIVATED') {
+        return res.status(403).json({ error: 'Your account has been deactivated. Please contact the administrator.' });
+      }
+      if (user.status === 'PENDING_APPROVAL') {
+        return res.status(403).json({ error: 'Your account is pending administrator approval.' });
+      }
+      req.user = user;
+    }
+  }
+  next();
+});
 app.get('/api/campaigns/list', (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
   const list = {};
 
   // Step 1: Aggregate sentCount from archived history run files per date
   const historySentByDate = {};
   try {
-    if (fs.existsSync(HISTORY_DIR)) {
-      const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
+    const userHistoryDir = path.join(HISTORY_DIR, user.id);
+    if (fs.existsSync(userHistoryDir)) {
+      const files = fs.readdirSync(userHistoryDir).filter(f => f.endsWith('.json'));
       files.forEach(file => {
         // filename format: run_YYYY-MM-DD_YYYY-MM-DD_HH-MM-SS.json
         const match = file.match(/^run_(\d{4}-\d{2}-\d{2})_/);
         if (match) {
           const date = match[1];
           try {
-            const content = fs.readFileSync(path.join(HISTORY_DIR, file), 'utf8');
+            const content = fs.readFileSync(path.join(userHistoryDir, file), 'utf8');
             const run = JSON.parse(content);
             if (!historySentByDate[date]) historySentByDate[date] = { sentCount: 0, totalCount: 0 };
             historySentByDate[date].sentCount  += (run.sentCount  || 0);
@@ -609,9 +733,9 @@ app.get('/api/campaigns/list', (req, res) => {
   } catch (e) { /* ignore history scan errors */ }
 
   // Step 2: Build list from live campaigns, supplementing with history data
-  if (db.campaigns) {
-    Object.keys(db.campaigns).forEach(date => {
-      const camp = db.campaigns[date];
+  if (user.campaigns) {
+    Object.keys(user.campaigns).forEach(date => {
+      const camp = user.campaigns[date];
       const hist = historySentByDate[date] || {};
       const hasData = (camp.recipients && camp.recipients.length > 0) || hist.sentCount > 0;
 
@@ -650,18 +774,21 @@ app.get('/api/campaigns/list', (req, res) => {
 // API Route: Retrieve Campaign Status & Active Queue (date-wise)
 app.get('/api/campaign/status', (req, res) => {
   const { date } = req.query;
-  const campaign = getCampaignForDate(date);
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
+  const campaign = getCampaignForDate(user, date);
   
   const responseData = {
     status: campaign.status,
+    plan: user.plan,
     settings: {
-      smtpUser: db.settings.smtpUser,
-      smtpPass: db.settings.smtpPass ? '********' : '',
-      intervalMinutes: db.settings.intervalMinutes,
-      testEmail: db.settings.testEmail,
-      trackingUrl: db.settings.trackingUrl || '',
-      adminUser: db.settings.adminUser || 'admin',
-      adminPass: db.settings.adminPass ? '********' : ''
+      smtpUser: user.settings.smtpUser,
+      smtpPass: user.settings.smtpPass ? '********' : '',
+      intervalMinutes: user.settings.intervalMinutes,
+      testEmail: user.settings.testEmail,
+      trackingUrl: user.settings.trackingUrl || '',
+      adminUser: user.email,
+      adminPass: '********'
     },
     campaign: {
       subject: campaign.subject,
@@ -686,34 +813,29 @@ app.get('/api/campaign/status', (req, res) => {
 
 // API Route: Save Configuration
 app.post('/api/settings', (req, res) => {
-  const { smtpUser, smtpPass, intervalMinutes, testEmail, trackingUrl, adminUser, adminPass } = req.body;
+  const { smtpUser, smtpPass, intervalMinutes, testEmail, trackingUrl } = req.body;
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
   
-  if (smtpUser !== undefined) db.settings.smtpUser = smtpUser;
-  if (smtpPass && smtpPass !== '********') db.settings.smtpPass = smtpPass;
+  if (smtpUser !== undefined) user.settings.smtpUser = smtpUser;
+  if (smtpPass && smtpPass !== '********') user.settings.smtpPass = smtpPass;
   if (intervalMinutes !== undefined) {
-    db.settings.intervalMinutes = Math.max(0.05, parseFloat(intervalMinutes));
+    user.settings.intervalMinutes = Math.max(0.05, parseFloat(intervalMinutes));
   }
-  if (testEmail !== undefined) db.settings.testEmail = testEmail;
-  if (trackingUrl !== undefined) db.settings.trackingUrl = trackingUrl.trim();
-  
-  if (adminUser !== undefined && adminUser.trim() !== '') {
-    db.settings.adminUser = adminUser.trim();
-  }
-  if (adminPass !== undefined && adminPass.trim() !== '' && adminPass !== '********') {
-    db.settings.adminPass = adminPass;
-  }
+  if (testEmail !== undefined) user.settings.testEmail = testEmail;
+  if (trackingUrl !== undefined) user.settings.trackingUrl = trackingUrl.trim();
   
   saveDatabase();
   res.json({
     success: true,
     settings: {
-      smtpUser: db.settings.smtpUser,
-      smtpPass: db.settings.smtpPass ? '********' : '',
-      intervalMinutes: db.settings.intervalMinutes,
-      testEmail: db.settings.testEmail,
-      trackingUrl: db.settings.trackingUrl || '',
-      adminUser: db.settings.adminUser || 'admin',
-      adminPass: db.settings.adminPass ? '********' : ''
+      smtpUser: user.settings.smtpUser,
+      smtpPass: user.settings.smtpPass ? '********' : '',
+      intervalMinutes: user.settings.intervalMinutes,
+      testEmail: user.settings.testEmail,
+      trackingUrl: user.settings.trackingUrl || '',
+      adminUser: user.email,
+      adminPass: '********'
     }
   });
 });
@@ -721,25 +843,87 @@ app.post('/api/settings', (req, res) => {
 // API Route: Save Client Timezone Offset
 app.post('/api/settings/timezone', (req, res) => {
   const { timezoneOffset } = req.body;
-  if (timezoneOffset !== undefined) {
-    db.settings.clientTimezoneOffset = Number(timezoneOffset);
-    saveDatabase();
+  const token = req.headers['authorization'] || req.query.token;
+  if (token && activeSessions.has(token)) {
+    const session = activeSessions.get(token);
+    if (session.role === 'user') {
+      const user = db.users[session.userId];
+      if (user && timezoneOffset !== undefined) {
+        if (!user.settings) user.settings = {};
+        user.settings.clientTimezoneOffset = Number(timezoneOffset);
+        saveDatabase();
+      }
+    }
   }
   res.json({ success: true });
 });
 
-// API Route: Authenticate Admin User
+// API Route: Send OTP for Standard User Login
+app.post('/api/login/send-otp', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email address is required.' });
+  }
+  
+  const user = Object.values(db.users).find(u => u.email.toLowerCase() === email.toLowerCase());
+  if (!user) {
+    return res.status(400).json({ error: 'Email address not registered.' });
+  }
+  
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const otpExpiry = Date.now() + 15 * 60 * 1000; // 15 minutes
+  user.loginOtp = otp;
+  user.loginOtpExpiry = otpExpiry;
+  saveDatabase();
+  
+  await sendOTPEmail(user.email, otp);
+  res.json({ success: true, message: 'OTP sent to your email address.' });
+});
+
+// API Route: Authenticate Admin/Standard User
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
+    return res.status(400).json({ error: 'Username/Email and password/OTP are required.' });
   }
-  if (username === db.settings.adminUser && password === db.settings.adminPass) {
-    const token = generateId(32);
-    activeSessions.add(token);
-    return res.json({ success: true, token });
+  
+  // Try masterAdmin login first
+  if (username === db.masterAdmin.username && password === db.masterAdmin.password) {
+    const token = 'ADMIN_' + generateId(32);
+    activeSessions.set(token, { role: 'admin' });
+    return res.json({ success: true, token, role: 'admin' });
   }
-  return res.status(401).json({ error: 'Invalid username or password.' });
+  
+  // Try standard user login via OTP
+  const user = Object.values(db.users).find(u => u.email.toLowerCase() === username.toLowerCase());
+  if (user) {
+    if (user.loginOtp !== password) {
+      return res.status(401).json({ error: 'Invalid OTP.' });
+    }
+    if (user.loginOtpExpiry && user.loginOtpExpiry < Date.now()) {
+      return res.status(401).json({ error: 'OTP has expired. Please request a new one.' });
+    }
+    
+    if (!user.verified) {
+      return res.status(403).json({ error: 'Email verification required.', status: 'PENDING_VERIFICATION', userId: user.id });
+    }
+    if (user.status === 'PENDING_APPROVAL') {
+      return res.status(403).json({ error: 'Your account is pending administrator approval.', status: 'PENDING_APPROVAL' });
+    }
+    if (user.status === 'DEACTIVATED') {
+      return res.status(403).json({ error: 'Your account has been deactivated.', status: 'DEACTIVATED' });
+    }
+    
+    user.loginOtp = null;
+    user.loginOtpExpiry = null;
+    saveDatabase();
+    
+    const token = 'USER_' + generateId(32);
+    activeSessions.set(token, { userId: user.id, role: 'user' });
+    return res.json({ success: true, token, role: 'user' });
+  }
+  
+  return res.status(401).json({ error: 'Invalid email address or OTP.' });
 });
 
 // API Route: Logout
@@ -754,11 +938,14 @@ app.post('/api/logout', (req, res) => {
 // API Route: Verify SMTP Connection
 app.post('/api/test-connection', async (req, res) => {
   const { smtpUser, smtpPass, testEmail } = req.body;
-  const user = smtpUser || db.settings.smtpUser;
-  const pass = (smtpPass && smtpPass !== '********') ? smtpPass : db.settings.smtpPass;
-  const toEmail = testEmail || db.settings.testEmail || user;
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
   
-  if (!user || !pass) {
+  const hostUser = smtpUser || user.settings.smtpUser;
+  const hostPass = (smtpPass && smtpPass !== '********') ? smtpPass : user.settings.smtpPass;
+  const toEmail = testEmail || user.settings.testEmail || hostUser;
+  
+  if (!hostUser || !hostPass) {
     return res.status(400).json({ error: 'Gmail user address and App Password credentials are required.' });
   }
   if (!toEmail) {
@@ -769,13 +956,13 @@ app.post('/api/test-connection', async (req, res) => {
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
-    auth: { user, pass }
+    auth: { user: hostUser, pass: hostPass }
   });
   
   try {
     await transporter.verify();
     await transporter.sendMail({
-      from: `"${user.split('@')[0]}" <${user}>`,
+      from: `"${hostUser.split('@')[0]}" <${hostUser}>`,
       to: toEmail,
       subject: 'Gmail Marketing System - Connection Test Successful',
       text: `Hello!\n\nThis is a verification check from your Gmail Marketing application. Your SMTP connections are working properly!\n\nVerified at: ${new Date().toLocaleString()}`
@@ -790,6 +977,9 @@ app.post('/api/test-connection', async (req, res) => {
 app.post('/api/upload-recipients', upload.single('file'), (req, res) => {
   try {
     const { date } = req.query;
+    const user = req.user;
+    if (!user) return res.status(400).json({ error: 'No user found' });
+
     if (!req.file) {
       return res.status(400).json({ error: 'Please choose and upload a sheet file.' });
     }
@@ -826,14 +1016,16 @@ app.post('/api/upload-recipients', upload.single('file'), (req, res) => {
         data[k] = String(v || '').trim();
       }
       
-      const isSuppressed = db.suppressedEmails && db.suppressedEmails.includes(email.toLowerCase());
+      const isSuppressed = user.suppressedEmails && user.suppressedEmails.includes(email.toLowerCase());
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const isValid = emailRegex.test(email);
       recipients.push({
         id: generateId(),
         name,
         email,
-        status: isSuppressed ? 'UNSUBSCRIBED' : 'PENDING',
+        status: !isValid ? 'FAILED' : (isSuppressed ? 'UNSUBSCRIBED' : 'PENDING'),
         sentAt: null,
-        error: null,
+        error: !isValid ? 'Invalid email format' : null,
         opened: false,
         openedAt: null,
         opensCount: 0,
@@ -848,14 +1040,20 @@ app.post('/api/upload-recipients', upload.single('file'), (req, res) => {
       return res.status(400).json({ error: 'No recipient contacts with valid emails were found.' });
     }
     
-    const campaign = getCampaignForDate(date);
+    const campaign = getCampaignForDate(user, date);
     campaign.status = 'IDLE';
     campaign.recipients = [...(campaign.recipients || []), ...recipients];
-    deduplicateRecipients(campaign);
+    deduplicateRecipients(user, campaign);
     campaign.totalCount = campaign.recipients.length;
+    campaign.failedCount = campaign.recipients.filter(r => r.status === 'FAILED').length;
     campaign.nextSendTime = null;
     
-    addCampaignLog(campaign, `Uploaded ${recipients.length} recipients (Auto-detected email: "${emailKey}", name: "${nameKey || 'None'}").`, 'info');
+    const invalidCount = recipients.filter(r => r.status === 'FAILED').length;
+    let logMsg = `Uploaded ${recipients.length} recipients (Auto-detected email: "${emailKey}", name: "${nameKey || 'None'}").`;
+    if (invalidCount > 0) {
+      logMsg += ` Found and flagged ${invalidCount} invalid email(s) as FAILED.`;
+    }
+    addCampaignLog(user, campaign, logMsg, 'info');
     
     saveDatabase();
     res.json({ success: true, count: recipients.length });
@@ -867,12 +1065,14 @@ app.post('/api/upload-recipients', upload.single('file'), (req, res) => {
 // API Route: Initiate or Resume Campaign
 app.post('/api/campaign/start', (req, res) => {
   const { date, subject, body, scheduleEnabled, scheduleTime, scheduleAllowedStart, scheduleAllowedEnd, scheduleDays } = req.body;
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
   
-  if (!db.settings.smtpUser || !db.settings.smtpPass) {
+  if (!user.settings.smtpUser || !user.settings.smtpPass) {
     return res.status(400).json({ error: 'Gmail connection settings are not configured yet.' });
   }
   
-  const campaign = getCampaignForDate(date);
+  const campaign = getCampaignForDate(user, date);
   if (campaign.recipients.length === 0) {
     return res.status(400).json({ error: 'The campaign recipient queue is empty. Upload a CSV/Excel sheet first.' });
   }
@@ -898,23 +1098,31 @@ app.post('/api/campaign/start', (req, res) => {
       campaign.openedCount = 0;
       campaign.clickedCount = 0;
       campaign.recipients.forEach(r => {
-        const isSuppressed = db.suppressedEmails && db.suppressedEmails.includes(r.email.toLowerCase());
-        r.status = isSuppressed ? 'UNSUBSCRIBED' : 'PENDING';
+        const isSuppressed = user.suppressedEmails && user.suppressedEmails.includes(r.email.toLowerCase());
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const isValid = emailRegex.test(r.email);
+        if (!isValid) {
+          r.status = 'FAILED';
+          r.error = 'Invalid email format';
+          campaign.failedCount++;
+        } else {
+          r.status = isSuppressed ? 'UNSUBSCRIBED' : 'PENDING';
+          r.error = null;
+        }
         r.sentAt = null;
-        r.error = null;
         r.opened = false;
         r.openedAt = null;
         r.opensCount = 0;
         r.clicks = [];
       });
-      deduplicateRecipients(campaign);
+      deduplicateRecipients(user, campaign);
       campaign.logs = [];
-      addCampaignLog(campaign, 'Starting email campaign deployment...', 'info');
+      addCampaignLog(user, campaign, 'Starting email campaign deployment...', 'info');
     } else {
-      addCampaignLog(campaign, 'Resuming email campaign deployment with new pending recipients...', 'info');
+      addCampaignLog(user, campaign, 'Resuming email campaign deployment with new pending recipients...', 'info');
     }
   } else if (campaign.status === 'PAUSED') {
-    addCampaignLog(campaign, 'Resuming current paused email campaign...', 'info');
+    addCampaignLog(user, campaign, 'Resuming current paused email campaign...', 'info');
   }
   
   campaign.status = 'RUNNING';
@@ -926,8 +1134,10 @@ app.post('/api/campaign/start', (req, res) => {
 // API Route: Save Campaign Settings & Content (Draft)
 app.post('/api/campaign/save', (req, res) => {
   const { date, subject, body, scheduleEnabled, scheduleTime, scheduleAllowedStart, scheduleAllowedEnd, scheduleDays } = req.body;
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
   
-  const campaign = getCampaignForDate(date);
+  const campaign = getCampaignForDate(user, date);
   
   if (subject !== undefined) campaign.subject = subject;
   if (body !== undefined) campaign.body = body;
@@ -939,7 +1149,7 @@ app.post('/api/campaign/save', (req, res) => {
   if (scheduleDays !== undefined) campaign.scheduleDays = Array.isArray(scheduleDays) ? scheduleDays.map(Number) : [1, 2, 3, 4, 5];
   
   campaign.nextSendTime = null;
-  addCampaignLog(campaign, 'Campaign draft and schedule settings saved.', 'info');
+  addCampaignLog(user, campaign, 'Campaign draft and schedule settings saved.', 'info');
   saveDatabase();
   res.json({ success: true });
 });
@@ -947,10 +1157,12 @@ app.post('/api/campaign/save', (req, res) => {
 // API Route: Pause Campaign
 app.post('/api/campaign/stop', (req, res) => {
   const { date } = req.body;
-  const campaign = getCampaignForDate(date);
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
+  const campaign = getCampaignForDate(user, date);
   campaign.status = 'PAUSED';
   campaign.nextSendTime = null;
-  addCampaignLog(campaign, 'Campaign paused by the operator.', 'info');
+  addCampaignLog(user, campaign, 'Campaign paused by the operator.', 'info');
   saveDatabase();
   res.json({ success: true });
 });
@@ -958,7 +1170,9 @@ app.post('/api/campaign/stop', (req, res) => {
 // API Route: Reset Campaign Queue
 app.post('/api/campaign/reset', (req, res) => {
   const { date } = req.body;
-  const campaign = getCampaignForDate(date);
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
+  const campaign = getCampaignForDate(user, date);
   campaign.status = 'IDLE';
   campaign.nextSendTime = null;
   campaign.sentCount = 0;
@@ -966,18 +1180,26 @@ app.post('/api/campaign/reset', (req, res) => {
   campaign.openedCount = 0;
   campaign.clickedCount = 0;
   campaign.recipients.forEach(r => {
-    const isSuppressed = db.suppressedEmails && db.suppressedEmails.includes(r.email.toLowerCase());
-    r.status = isSuppressed ? 'UNSUBSCRIBED' : 'PENDING';
+    const isSuppressed = user.suppressedEmails && user.suppressedEmails.includes(r.email.toLowerCase());
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isValid = emailRegex.test(r.email);
+    if (!isValid) {
+      r.status = 'FAILED';
+      r.error = 'Invalid email format';
+      campaign.failedCount++;
+    } else {
+      r.status = isSuppressed ? 'UNSUBSCRIBED' : 'PENDING';
+      r.error = null;
+    }
     r.sentAt = null;
-    r.error = null;
     r.opened = false;
     r.openedAt = null;
     r.opensCount = 0;
     r.clicks = [];
   });
-  deduplicateRecipients(campaign);
+  deduplicateRecipients(user, campaign);
   campaign.logs = [];
-  addCampaignLog(campaign, 'Campaign settings and recipient queue metrics have been reset.', 'info');
+  addCampaignLog(user, campaign, 'Campaign settings and recipient queue metrics have been reset.', 'info');
   saveDatabase();
   res.json({ success: true });
 });
@@ -985,10 +1207,12 @@ app.post('/api/campaign/reset', (req, res) => {
 // API Route: Clear Campaign Recipients entirely
 app.post('/api/campaign/clear', (req, res) => {
   const { date } = req.body;
-  const campaign = getCampaignForDate(date);
+  const user = req.user;
+  if (!user) return res.status(400).json({ error: 'No user found' });
+  const campaign = getCampaignForDate(user, date);
   
   if (campaign.recipients && campaign.recipients.length > 0 && (campaign.sentCount > 0 || campaign.failedCount > 0)) {
-    archiveCampaignRun(campaign, date);
+    archiveCampaignRun(user, campaign, date);
   }
   
   campaign.status = 'IDLE';
@@ -1000,7 +1224,7 @@ app.post('/api/campaign/clear', (req, res) => {
   campaign.clickedCount = 0;
   campaign.recipients = [];
   campaign.logs = [];
-  addCampaignLog(campaign, 'Campaign recipient list cleared.', 'info');
+  addCampaignLog(user, campaign, 'Campaign recipient list cleared.', 'info');
   saveDatabase();
   res.json({ success: true });
 });
@@ -1009,7 +1233,9 @@ app.post('/api/campaign/clear', (req, res) => {
 app.get('/api/campaign/export', (req, res) => {
   try {
     const { date, startDate, endDate, clientType, company, city } = req.query;
-    const campaign = getCampaignForDate(date);
+    const user = req.user;
+    if (!user) return res.status(400).json({ error: 'No user found' });
+    const campaign = getCampaignForDate(user, date);
     let recipients = campaign.recipients || [];
     
     if (startDate) {
@@ -1061,11 +1287,14 @@ app.get('/api/campaign/export', (req, res) => {
 
 app.get('/api/history', (req, res) => {
   try {
-    if (!fs.existsSync(HISTORY_DIR)) {
+    const user = req.user;
+    if (!user) return res.status(400).json({ error: 'No user found' });
+    const userHistoryDir = path.join(HISTORY_DIR, user.id);
+    if (!fs.existsSync(userHistoryDir)) {
       return res.json([]);
     }
     const { date } = req.query;
-    let files = fs.readdirSync(HISTORY_DIR).filter(file => file.endsWith('.json'));
+    let files = fs.readdirSync(userHistoryDir).filter(file => file.endsWith('.json'));
     if (date) {
       files = files.filter(file => file.startsWith(`run_${date}_`));
     }
@@ -1073,7 +1302,7 @@ app.get('/api/history', (req, res) => {
     
     for (const file of files) {
       try {
-        const filePath = path.join(HISTORY_DIR, file);
+        const filePath = path.join(userHistoryDir, file);
         const content = fs.readFileSync(filePath, 'utf8');
         const run = JSON.parse(content);
         historyList.push({
@@ -1102,8 +1331,10 @@ app.get('/api/history', (req, res) => {
 app.get('/api/history/export/:runId', (req, res) => {
   try {
     const { runId } = req.params;
+    const user = req.user;
+    if (!user) return res.status(400).json({ error: 'No user found' });
     const safeRunId = path.basename(runId);
-    const filePath = path.join(HISTORY_DIR, `${safeRunId}.json`);
+    const filePath = path.join(HISTORY_DIR, user.id, `${safeRunId}.json`);
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).send('History campaign run not found.');
@@ -1132,60 +1363,71 @@ app.get('/api/track/open/:recipientId', (req, res) => {
   
   let recipient = null;
   let campaign = null;
-  if (db.campaigns) {
-    for (const dateStr of Object.keys(db.campaigns)) {
-      const camp = db.campaigns[dateStr];
-      const r = camp.recipients.find(rec => rec.id === recipientId);
-      if (r) {
-        recipient = r;
-        campaign = camp;
-        break;
+  let user = null;
+  if (db.users) {
+    for (const userId of Object.keys(db.users)) {
+      const u = db.users[userId];
+      if (u.campaigns) {
+        for (const dateStr of Object.keys(u.campaigns)) {
+          const camp = u.campaigns[dateStr];
+          const r = camp.recipients.find(rec => rec.id === recipientId);
+          if (r) {
+            recipient = r;
+            campaign = camp;
+            user = u;
+            break;
+          }
+        }
       }
+      if (recipient) break;
     }
   }
   
-  if (recipient && campaign) {
+  if (recipient && campaign && user) {
     if (!recipient.opened) {
       recipient.opened = true;
       recipient.openedAt = new Date().toISOString();
       campaign.openedCount = (campaign.openedCount || 0) + 1;
-      addCampaignLog(campaign, `[Track] Email opened by ${recipient.name} <${recipient.email}>`, 'success');
+      addCampaignLog(user, campaign, `[Track] Email opened by ${recipient.name} <${recipient.email}>`, 'success');
     }
     recipient.opensCount = (recipient.opensCount || 0) + 1;
     saveDatabase();
   }
   
   // Also search and update matching recipient in archived history run files
-  try {
-    if (fs.existsSync(HISTORY_DIR)) {
-      const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
-      for (const file of files) {
-        const filePath = path.join(HISTORY_DIR, file);
-        const fileContent = fs.readFileSync(filePath, 'utf8');
-        const run = JSON.parse(fileContent);
-        if (run.recipients) {
-          const r = run.recipients.find(rec => rec.id === recipientId);
-          if (r) {
-            let fileUpdated = false;
-            if (!r.opened) {
-              r.opened = true;
-              r.openedAt = new Date().toISOString();
-              run.openedCount = (run.openedCount || 0) + 1;
+  if (user) {
+    try {
+      const userHistoryDir = path.join(HISTORY_DIR, user.id);
+      if (fs.existsSync(userHistoryDir)) {
+        const files = fs.readdirSync(userHistoryDir).filter(f => f.endsWith('.json'));
+        for (const file of files) {
+          const filePath = path.join(userHistoryDir, file);
+          const fileContent = fs.readFileSync(filePath, 'utf8');
+          const run = JSON.parse(fileContent);
+          if (run.recipients) {
+            const r = run.recipients.find(rec => rec.id === recipientId);
+            if (r) {
+              let fileUpdated = false;
+              if (!r.opened) {
+                r.opened = true;
+                r.openedAt = new Date().toISOString();
+                run.openedCount = (run.openedCount || 0) + 1;
+                fileUpdated = true;
+              }
+              r.opensCount = (r.opensCount || 0) + 1;
               fileUpdated = true;
-            }
-            r.opensCount = (r.opensCount || 0) + 1;
-            fileUpdated = true;
-            
-            if (fileUpdated) {
-              fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
-              console.log(`[Track] History run file ${file} updated for email open by ${r.name}`);
+              
+              if (fileUpdated) {
+                fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
+                console.log(`[Track] History run file ${file} updated for email open by ${r.name}`);
+              }
             }
           }
         }
       }
+    } catch (err) {
+      console.error('Error updating history run file for tracking open:', err);
     }
-  } catch (err) {
-    console.error('Error updating history run file for tracking open:', err);
   }
   
   res.writeHead(200, {
@@ -1207,19 +1449,27 @@ app.get('/api/track/click/:recipientId', (req, res) => {
   
   let recipient = null;
   let campaign = null;
-  if (db.campaigns) {
-    for (const dateStr of Object.keys(db.campaigns)) {
-      const camp = db.campaigns[dateStr];
-      const r = camp.recipients.find(rec => rec.id === recipientId);
-      if (r) {
-        recipient = r;
-        campaign = camp;
-        break;
+  let user = null;
+  if (db.users) {
+    for (const userId of Object.keys(db.users)) {
+      const u = db.users[userId];
+      if (u.campaigns) {
+        for (const dateStr of Object.keys(u.campaigns)) {
+          const camp = u.campaigns[dateStr];
+          const r = camp.recipients.find(rec => rec.id === recipientId);
+          if (r) {
+            recipient = r;
+            campaign = camp;
+            user = u;
+            break;
+          }
+        }
       }
+      if (recipient) break;
     }
   }
   
-  if (recipient && campaign) {
+  if (recipient && campaign && user) {
     if (!recipient.clicks) recipient.clicks = [];
     recipient.clicks.push({
       url: targetUrl,
@@ -1231,38 +1481,41 @@ app.get('/api/track/click/:recipientId', (req, res) => {
       campaign.clickedCount = (campaign.clickedCount || 0) + 1;
     }
     
-    addCampaignLog(campaign, `[Track] Link clicked by ${recipient.name} <${recipient.email}>: ${targetUrl}`, 'success');
+    addCampaignLog(user, campaign, `[Track] Link clicked by ${recipient.name} <${recipient.email}>: ${targetUrl}`, 'success');
     saveDatabase();
   }
   
   // Also search and update matching recipient in archived history run files
-  try {
-    if (fs.existsSync(HISTORY_DIR)) {
-      const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
-      for (const file of files) {
-        const filePath = path.join(HISTORY_DIR, file);
-        const fileContent = fs.readFileSync(filePath, 'utf8');
-        const run = JSON.parse(fileContent);
-        if (run.recipients) {
-          const r = run.recipients.find(rec => rec.id === recipientId);
-          if (r) {
-            if (!r.clicks) r.clicks = [];
-            r.clicks.push({
-              url: targetUrl,
-              clickedAt: new Date().toISOString()
-            });
-            const isFirstClick = r.clicks.length === 1;
-            if (isFirstClick) {
-              run.clickedCount = (run.clickedCount || 0) + 1;
+  if (user) {
+    try {
+      const userHistoryDir = path.join(HISTORY_DIR, user.id);
+      if (fs.existsSync(userHistoryDir)) {
+        const files = fs.readdirSync(userHistoryDir).filter(f => f.endsWith('.json'));
+        for (const file of files) {
+          const filePath = path.join(userHistoryDir, file);
+          const fileContent = fs.readFileSync(filePath, 'utf8');
+          const run = JSON.parse(fileContent);
+          if (run.recipients) {
+            const r = run.recipients.find(rec => rec.id === recipientId);
+            if (r) {
+              if (!r.clicks) r.clicks = [];
+              r.clicks.push({
+                url: targetUrl,
+                clickedAt: new Date().toISOString()
+              });
+              const isFirstClick = r.clicks.length === 1;
+              if (isFirstClick) {
+                run.clickedCount = (run.clickedCount || 0) + 1;
+              }
+              fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
+              console.log(`[Track] History run file ${file} updated for link click by ${r.name}`);
             }
-            fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
-            console.log(`[Track] History run file ${file} updated for link click by ${r.name}`);
           }
         }
       }
+    } catch (err) {
+      console.error('Error updating history run file for tracking click:', err);
     }
-  } catch (err) {
-    console.error('Error updating history run file for tracking click:', err);
   }
   
   res.redirect(targetUrl);
@@ -1276,49 +1529,61 @@ function escapeHtml(str) {
 app.get('/api/unsubscribe', (req, res) => {
   const email = (req.query.email || '').trim().toLowerCase();
   
-  if (email && !db.suppressedEmails.includes(email)) {
-    db.suppressedEmails.push(email);
-  }
-  
   if (email) {
-    // Update active campaigns in memory
-    for (const dateStr of Object.keys(db.campaigns)) {
-      const camp = db.campaigns[dateStr];
-      camp.recipients.forEach(r => {
-        if (r.email.toLowerCase() === email && r.status !== 'DUPLICATE' && r.status !== 'DELETED') {
-          r.status = 'UNSUBSCRIBED';
-        }
-      });
-    }
-    saveDatabase();
-    
-    // Update history run files on disk
-    try {
-      if (fs.existsSync(HISTORY_DIR)) {
-        const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
-        for (const file of files) {
-          const filePath = path.join(HISTORY_DIR, file);
-          const fileContent = fs.readFileSync(filePath, 'utf8');
-          const run = JSON.parse(fileContent);
-          let updated = false;
-          if (run.recipients) {
-            run.recipients.forEach(r => {
-              if (r.email.toLowerCase() === email && 
-                  r.status !== 'UNSUBSCRIBED' && 
-                  r.status !== 'DUPLICATE' && 
-                  r.status !== 'DELETED') {
-                r.status = 'UNSUBSCRIBED';
-                updated = true;
-              }
-            });
-          }
-          if (updated) {
-            fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
-          }
+    // Find all users who have this email in their campaigns and update them
+    for (const userId of Object.keys(db.users)) {
+      const user = db.users[userId];
+      
+      if (!user.suppressedEmails.includes(email)) {
+        user.suppressedEmails.push(email);
+      }
+      
+      let updatedInMemory = false;
+      if (user.campaigns) {
+        for (const dateStr of Object.keys(user.campaigns)) {
+          const camp = user.campaigns[dateStr];
+          camp.recipients.forEach(r => {
+            if (r.email.toLowerCase() === email && r.status !== 'DUPLICATE' && r.status !== 'DELETED') {
+              r.status = 'UNSUBSCRIBED';
+              updatedInMemory = true;
+            }
+          });
         }
       }
-    } catch (err) {
-      console.error('Error updating history run files for unsubscribe:', err);
+      
+      if (updatedInMemory) {
+        saveDatabase();
+      }
+      
+      // Update history run files on disk
+      try {
+        const userHistoryDir = path.join(HISTORY_DIR, user.id);
+        if (fs.existsSync(userHistoryDir)) {
+          const files = fs.readdirSync(userHistoryDir).filter(f => f.endsWith('.json'));
+          for (const file of files) {
+            const filePath = path.join(userHistoryDir, file);
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+            const run = JSON.parse(fileContent);
+            let updated = false;
+            if (run.recipients) {
+              run.recipients.forEach(r => {
+                if (r.email.toLowerCase() === email && 
+                    r.status !== 'UNSUBSCRIBED' && 
+                    r.status !== 'DUPLICATE' && 
+                    r.status !== 'DELETED') {
+                  r.status = 'UNSUBSCRIBED';
+                  updated = true;
+                }
+              });
+            }
+            if (updated) {
+              fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error updating history run files for unsubscribe:', err);
+      }
     }
   }
 
@@ -1414,43 +1679,53 @@ app.get('/api/subscribe', (req, res) => {
   const email = (req.query.email || '').trim().toLowerCase();
   
   if (email) {
-    db.suppressedEmails = db.suppressedEmails.filter(e => e !== email);
-    
-    // Update active campaigns in memory (re-enable if unsubscribed)
-    for (const dateStr of Object.keys(db.campaigns)) {
-      const camp = db.campaigns[dateStr];
-      camp.recipients.forEach(r => {
-        if (r.email.toLowerCase() === email && r.status === 'UNSUBSCRIBED') {
-          r.status = r.sentAt ? 'SENT' : 'PENDING';
-        }
-      });
-    }
-    saveDatabase();
-
-    // Update history run files on disk
-    try {
-      if (fs.existsSync(HISTORY_DIR)) {
-        const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
-        for (const file of files) {
-          const filePath = path.join(HISTORY_DIR, file);
-          const fileContent = fs.readFileSync(filePath, 'utf8');
-          const run = JSON.parse(fileContent);
-          let updated = false;
-          if (run.recipients) {
-            run.recipients.forEach(r => {
-              if (r.email.toLowerCase() === email && r.status === 'UNSUBSCRIBED') {
-                r.status = r.sentAt ? 'SENT' : 'PENDING';
-                updated = true;
-              }
-            });
-          }
-          if (updated) {
-            fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
-          }
+    for (const userId of Object.keys(db.users)) {
+      const user = db.users[userId];
+      user.suppressedEmails = user.suppressedEmails.filter(e => e !== email);
+      
+      let updatedInMemory = false;
+      if (user.campaigns) {
+        for (const dateStr of Object.keys(user.campaigns)) {
+          const camp = user.campaigns[dateStr];
+          camp.recipients.forEach(r => {
+            if (r.email.toLowerCase() === email && r.status === 'UNSUBSCRIBED') {
+              r.status = r.sentAt ? 'SENT' : 'PENDING';
+              updatedInMemory = true;
+            }
+          });
         }
       }
-    } catch (err) {
-      console.error('Error updating history run files for subscribe:', err);
+      
+      if (updatedInMemory) {
+        saveDatabase();
+      }
+
+      // Update history run files on disk
+      try {
+        const userHistoryDir = path.join(HISTORY_DIR, user.id);
+        if (fs.existsSync(userHistoryDir)) {
+          const files = fs.readdirSync(userHistoryDir).filter(f => f.endsWith('.json'));
+          for (const file of files) {
+            const filePath = path.join(userHistoryDir, file);
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+            const run = JSON.parse(fileContent);
+            let updated = false;
+            if (run.recipients) {
+              run.recipients.forEach(r => {
+                if (r.email.toLowerCase() === email && r.status === 'UNSUBSCRIBED') {
+                  r.status = r.sentAt ? 'SENT' : 'PENDING';
+                  updated = true;
+                }
+              });
+            }
+            if (updated) {
+              fs.writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error updating history run files for subscribe:', err);
+      }
     }
   }
 
@@ -1541,6 +1816,255 @@ app.get('/api/subscribe', (req, res) => {
 </html>
   `);
 });
+
+// ==========================================================================
+// User Registration, Verification, Payment, and Master Admin APIs
+// ==========================================================================
+
+app.post('/api/signup', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required.' });
+  }
+  
+  const existing = Object.values(db.users).find(u => u.email.toLowerCase() === email.toLowerCase());
+  if (existing) {
+    return res.status(400).json({ error: 'Email already registered.' });
+  }
+  
+  const userId = 'user_' + generateId(10);
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  
+  db.users[userId] = {
+    id: userId,
+    email: email.toLowerCase(),
+    password: password,
+    verified: false,
+    verificationCode: code,
+    status: 'PENDING_APPROVAL',
+    plan: 'FREE',
+    settings: {
+      smtpUser: '',
+      smtpPass: '',
+      intervalMinutes: 3,
+      testEmail: '',
+      trackingUrl: '',
+      clientTimezoneOffset: 0
+    },
+    campaigns: {},
+    suppressedEmails: []
+  };
+  
+  saveDatabase();
+  await sendVerificationEmail(email, code);
+  
+  res.json({ success: true, message: 'Registration initiated. Please verify your email.', userId });
+});
+
+app.post('/api/verify-email', (req, res) => {
+  const { userId, code } = req.body;
+  const user = db.users[userId];
+  if (!user) {
+    return res.status(400).json({ error: 'User not found.' });
+  }
+  
+  if (user.verificationCode !== code) {
+    return res.status(400).json({ error: 'Invalid verification code.' });
+  }
+  
+  user.verified = true;
+  user.verificationCode = null;
+  saveDatabase();
+  
+  res.json({ success: true, message: 'Email verified successfully. Please choose your plan.' });
+});
+
+app.post('/api/complete-payment', (req, res) => {
+  const { userId, plan } = req.body;
+  const user = db.users[userId];
+  if (!user) {
+    return res.status(400).json({ error: 'User not found.' });
+  }
+  
+  user.plan = plan || 'PRO';
+  saveDatabase();
+  
+  res.json({ success: true, message: 'Plan selected successfully! Your account is pending administrator approval.' });
+});
+
+// Master Admin: Get all users with metrics aggregated
+app.get('/api/master/users', (req, res) => {
+  if (req.session.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+  
+  const userList = Object.values(db.users).map(u => {
+    let totalSent = 0;
+    let totalFailed = 0;
+    let totalOpened = 0;
+    let totalClicked = 0;
+    
+    // Aggregation from active memory
+    if (u.campaigns) {
+      Object.values(u.campaigns).forEach(c => {
+        totalSent += (c.sentCount || 0);
+        totalFailed += (c.failedCount || 0);
+        totalOpened += (c.openedCount || 0);
+        totalClicked += (c.clickedCount || 0);
+      });
+    }
+    
+    // Aggregation from history reports
+    try {
+      const userHistoryDir = path.join(HISTORY_DIR, u.id);
+      if (fs.existsSync(userHistoryDir)) {
+        const files = fs.readdirSync(userHistoryDir).filter(f => f.endsWith('.json'));
+        files.forEach(file => {
+          try {
+            const content = fs.readFileSync(path.join(userHistoryDir, file), 'utf8');
+            const run = JSON.parse(content);
+            totalSent += (run.sentCount || 0);
+            totalFailed += (run.failedCount || 0);
+            totalOpened += (run.openedCount || 0);
+            totalClicked += (run.clickedCount || 0);
+          } catch (e) {}
+        });
+      }
+    } catch (e) {}
+    
+    return {
+      id: u.id,
+      email: u.email,
+      verified: u.verified,
+      status: u.status,
+      plan: u.plan,
+      metrics: {
+        sent: totalSent,
+        failed: totalFailed,
+        opened: totalOpened,
+        clicked: totalClicked
+      }
+    };
+  });
+  
+  res.json(userList);
+});
+
+app.post('/api/master/approve', (req, res) => {
+  if (req.session.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+  const { userId } = req.body;
+  const user = db.users[userId];
+  if (!user) return res.status(400).json({ error: 'User not found' });
+  
+  user.status = 'ACTIVE';
+  saveDatabase();
+  res.json({ success: true, message: 'User approved successfully.' });
+});
+
+app.post('/api/master/toggle-status', (req, res) => {
+  if (req.session.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+  const { userId, status } = req.body;
+  const user = db.users[userId];
+  if (!user) return res.status(400).json({ error: 'User not found' });
+  
+  user.status = status;
+  saveDatabase();
+  res.json({ success: true, message: `User status changed to ${status}.` });
+});
+
+// Master Admin: Retrieve specific user stats for a specific date
+app.get('/api/master/user/campaign-stats', (req, res) => {
+  if (req.session.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+  const { userId, date } = req.query;
+  const user = db.users[userId];
+  if (!user) return res.status(400).json({ error: 'User not found' });
+  
+  let sent = 0;
+  let failed = 0;
+  let opened = 0;
+  let clicked = 0;
+  
+  // 1. Live campaign
+  if (user.campaigns && user.campaigns[date]) {
+    const c = user.campaigns[date];
+    sent += (c.sentCount || 0);
+    failed += (c.failedCount || 0);
+    opened += (c.openedCount || 0);
+    clicked += (c.clickedCount || 0);
+  }
+  
+  // 2. Historical runs
+  try {
+    const userHistoryDir = path.join(HISTORY_DIR, user.id);
+    if (fs.existsSync(userHistoryDir)) {
+      const files = fs.readdirSync(userHistoryDir).filter(f => f.endsWith('.json') && f.startsWith(`run_${date}_`));
+      files.forEach(file => {
+        try {
+          const content = fs.readFileSync(path.join(userHistoryDir, file), 'utf8');
+          const run = JSON.parse(content);
+          sent += (run.sentCount || 0);
+          failed += (run.failedCount || 0);
+          opened += (run.openedCount || 0);
+          clicked += (run.clickedCount || 0);
+        } catch (e) {}
+      });
+    }
+  } catch (e) {}
+  
+  res.json({ sent, failed, opened, clicked });
+});
+
+// Master Admin: Export specific user campaign data for a specific date
+app.get('/api/master/user/export-csv', (req, res) => {
+  const token = req.query.token;
+  if (!token || !activeSessions.has(token) || activeSessions.get(token).role !== 'admin') {
+    return res.status(403).send('Access denied.');
+  }
+  
+  const { userId, date } = req.query;
+  const user = db.users[userId];
+  if (!user) return res.status(400).send('User not found.');
+  
+  let recipients = [];
+  
+  // 1. Live campaign
+  if (user.campaigns && user.campaigns[date] && user.campaigns[date].recipients) {
+    recipients = [...user.campaigns[date].recipients];
+  }
+  
+  // 2. Historical runs
+  try {
+    const userHistoryDir = path.join(HISTORY_DIR, user.id);
+    if (fs.existsSync(userHistoryDir)) {
+      const files = fs.readdirSync(userHistoryDir).filter(f => f.endsWith('.json') && f.startsWith(`run_${date}_`));
+      files.forEach(file => {
+        try {
+          const content = fs.readFileSync(path.join(userHistoryDir, file), 'utf8');
+          const run = JSON.parse(content);
+          if (run.recipients) {
+            recipients = [...recipients, ...run.recipients];
+          }
+        } catch (e) {}
+      });
+    }
+  } catch (e) {}
+  
+  if (recipients.length === 0) {
+    return res.status(404).send('No recipient data found for this date.');
+  }
+  
+  const csv = generateCSV(recipients);
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename=user_${user.id}_campaign_${date}_report.csv`);
+  res.status(200).send(csv);
+});
+
 
 app.listen(PORT, () => {
   console.log(`Gmail Marketing application engine running on port ${PORT}`);

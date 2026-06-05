@@ -27,18 +27,128 @@
       </div>
       <form id="login-form">
         <div class="input-group">
-          <label for="login-username">Username</label>
-          <input type="text" id="login-username" placeholder="Username" required>
+          <label for="login-username">Email / Username</label>
+          <input type="text" id="login-username" placeholder="yourname@gmail.com" required>
         </div>
         <div class="input-group">
-          <label for="login-password">Password</label>
-          <input type="password" id="login-password" placeholder="••••••••" required>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+            <label for="login-password" style="margin-bottom: 0;">Password / OTP</label>
+            <a href="#" onclick="sendLoginOTP(event)" id="login-otp-link" style="font-size: 0.75rem; color: var(--color-primary); font-weight: 600; text-decoration: none;">Send OTP</a>
+          </div>
+          <div style="position: relative; display: flex; align-items: center; width: 100%;">
+            <input type="password" id="login-password" placeholder="••••••••" style="width: 100%; padding-right: 2.5rem;" required>
+            <button type="button" onclick="togglePasswordVisibility('login-password')" style="position: absolute; right: 10px; background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; height: 100%;">
+              <i data-lucide="eye" style="width: 16px; height: 16px;"></i>
+            </button>
+          </div>
         </div>
         <button type="submit" class="btn primary-gradient login-submit-btn">
           <i data-lucide="log-in"></i> Sign In
         </button>
-        <div id="login-error-message" class="login-error-message" style="display: none;"></div>
+        <div id="login-error-message" class="login-error-message" style="display: none; color: var(--color-danger); font-size: 0.85rem; margin-top: 0.75rem; text-align: center; background: rgba(239,68,68,0.1); padding: 0.4rem; border-radius: 6px;"></div>
+        <p style="text-align: center; margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);">
+          Don't have an account? <a href="#" onclick="showSignupOverlay()" style="color: var(--color-primary); font-weight: 600; text-decoration: none;">Sign Up</a>
+        </p>
       </form>
+    </div>
+  </div>
+
+  <!-- Glassmorphic Signup Overlay -->
+  <div id="signup-overlay" class="login-overlay" style="display: none;">
+    <div class="login-card glass">
+      <div class="login-header">
+        <div class="logo-icon">
+          <i data-lucide="user-plus"></i>
+        </div>
+        <h2>Create Account</h2>
+        <p>Sign up to start dispatching campaigns</p>
+      </div>
+      <form id="signup-form">
+        <div class="input-group">
+          <label for="signup-email">Email Address</label>
+          <input type="email" id="signup-email" placeholder="yourname@gmail.com" required>
+        </div>
+        <div class="input-group">
+          <label for="signup-password">Password</label>
+          <div style="position: relative; display: flex; align-items: center; width: 100%;">
+            <input type="password" id="signup-password" placeholder="••••••••" style="width: 100%; padding-right: 2.5rem;" required>
+            <button type="button" onclick="togglePasswordVisibility('signup-password')" style="position: absolute; right: 10px; background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; height: 100%;">
+              <i data-lucide="eye" style="width: 16px; height: 16px;"></i>
+            </button>
+          </div>
+        </div>
+        <button type="submit" class="btn primary-gradient login-submit-btn">
+          <i data-lucide="user-plus"></i> Register Account
+        </button>
+        <div id="signup-error-message" class="login-error-message" style="display: none; color: var(--color-danger); font-size: 0.85rem; margin-top: 0.75rem; text-align: center; background: rgba(239,68,68,0.1); padding: 0.4rem; border-radius: 6px;"></div>
+        <p style="text-align: center; margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);">
+          Already have an account? <a href="#" onclick="showLoginOverlay()" style="color: var(--color-primary); font-weight: 600; text-decoration: none;">Sign In</a>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Glassmorphic Verification Overlay -->
+  <div id="verify-overlay" class="login-overlay" style="display: none;">
+    <div class="login-card glass">
+      <div class="login-header">
+        <div class="logo-icon">
+          <i data-lucide="shield-alert"></i>
+        </div>
+        <h2>Verify Email</h2>
+        <p>We've sent a 6-digit verification code to your email.</p>
+      </div>
+      <form id="verify-form">
+        <div class="input-group">
+          <label for="verify-code">Verification Code</label>
+          <input type="text" id="verify-code" placeholder="123456" maxlength="6" style="text-align: center; font-size: 1.25rem; letter-spacing: 0.25em;" required>
+        </div>
+        <button type="submit" class="btn primary-gradient login-submit-btn">
+          <i data-lucide="check-circle"></i> Verify Code
+        </button>
+        <div id="verify-error-message" class="login-error-message" style="display: none; color: var(--color-danger); font-size: 0.85rem; margin-top: 0.75rem; text-align: center; background: rgba(239,68,68,0.1); padding: 0.4rem; border-radius: 6px;"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Glassmorphic Plan/Payment Overlay -->
+  <div id="payment-overlay" class="login-overlay" style="display: none;">
+    <div class="login-card glass" style="max-width: 500px; width: 95%;">
+      <div class="login-header">
+        <div class="logo-icon">
+          <i data-lucide="credit-card"></i>
+        </div>
+        <h2>Select Your Plan</h2>
+        <p>Complete checkout to unlock autopilot sending</p>
+      </div>
+      <div class="plan-selection-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem; margin-bottom: 1.5rem;">
+        <!-- Pro Plan Card -->
+        <div class="plan-option-card active" onclick="selectCheckoutPlan('PRO')" id="plan-pro" style="background: rgba(99,102,241,0.06); border: 2px solid var(--color-primary); border-radius: 12px; padding: 1.25rem; text-align: center; cursor: pointer; transition: all 0.2s;">
+          <h4 style="font-size: 1.1rem; color: #fff; font-weight: 700; margin-bottom: 0.25rem;">PRO Plan</h4>
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">For small to medium teams</p>
+          <div style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">$29<span style="font-size: 0.75rem; color: var(--text-muted);">/mo</span></div>
+          <ul style="text-align: left; list-style: none; font-size: 0.75rem; color: var(--text-muted); padding: 0; display: flex; flex-direction: column; gap: 4px;">
+            <li>✓ Unlimited campaigns</li>
+            <li>✓ Open & click tracking</li>
+            <li>✓ CSV/Excel recipient load</li>
+          </ul>
+        </div>
+        <!-- Enterprise Plan Card -->
+        <div class="plan-option-card" onclick="selectCheckoutPlan('ENTERPRISE')" id="plan-enterprise" style="background: rgba(255,255,255,0.02); border: 2px solid var(--border-color); border-radius: 12px; padding: 1.25rem; text-align: center; cursor: pointer; transition: all 0.2s;">
+          <h4 style="font-size: 1.1rem; color: #fff; font-weight: 700; margin-bottom: 0.25rem;">Enterprise</h4>
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">For large-scale marketing</p>
+          <div style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">$89<span style="font-size: 0.75rem; color: var(--text-muted);">/mo</span></div>
+          <ul style="text-align: left; list-style: none; font-size: 0.75rem; color: var(--text-muted); padding: 0; display: flex; flex-direction: column; gap: 4px;">
+            <li>✓ Standard Pro Plan benefits</li>
+            <li>✓ 24/7 dedicated support</li>
+            <li>✓ Multi-device webhook support</li>
+          </ul>
+        </div>
+      </div>
+      <button onclick="submitCheckoutPayment()" class="btn primary-gradient login-submit-btn" style="width: 100%;">
+        <i data-lucide="lock"></i> Pay & Complete Registration
+      </button>
+      <div id="payment-error-message" class="login-error-message" style="display: none; color: var(--color-danger); font-size: 0.85rem; margin-top: 0.75rem; text-align: center; background: rgba(239,68,68,0.1); padding: 0.4rem; border-radius: 6px;"></div>
     </div>
   </div>
 
@@ -53,7 +163,7 @@
         </div>
         <div class="brand-text">
           <h1>Gmail Marketing</h1>
-          <p>Autopilot Campaign Dispatcher</p>
+          <p id="user-identity-display">Autopilot Campaign Dispatcher</p>
         </div>
       </div>
       
@@ -66,6 +176,10 @@
         <div id="campaign-status" class="status-indicator-badge idle">
           <span class="dot"></span>
           <span class="text">Idle</span>
+        </div>
+        <div id="user-plan-badge" class="status-indicator-badge success" style="display: none; border-color: rgba(139,92,246,0.3); background: rgba(139,92,246,0.08); color: #c084fc;">
+          <span class="dot" style="background-color: #c084fc;"></span>
+          <span class="text" id="user-plan-text">PRO Plan</span>
         </div>
         <button id="header-logout-btn" class="btn secondary" style="padding: 6px 12px; height: 32px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px;" onclick="logout()">
           <i data-lucide="log-out" style="width: 14px; height: 14px;"></i> Sign Out
@@ -83,6 +197,9 @@
       </button>
       <button class="tab-btn" onclick="switchTab('tab-history'); loadHistory();">
         <i data-lucide="history"></i> Campaign History
+      </button>
+      <button class="tab-btn" id="admin-tab-btn" onclick="switchTab('tab-admin'); loadMasterUsers();" style="display: none;">
+        <i data-lucide="shield"></i> Master Admin
       </button>
     </nav>
 
@@ -771,8 +888,51 @@
                   <button id="gh-prev-page-btn" class="btn secondary" onclick="ghPrevPage()" style="padding: 4px 10px; height: 30px; font-size: 0.8rem;"><i data-lucide="chevron-left" style="width: 14px; height: 14px;"></i></button>
                   <span id="gh-current-page-display" style="display: inline-flex; align-items: center; justify-content: center; min-width: 60px; font-size: 0.85rem; font-weight: 600; color: #fff; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 6px; padding: 0 8px;">Page 1 / 1</span>
                   <button id="gh-next-page-btn" class="btn secondary" onclick="ghNextPage()" style="padding: 4px 10px; height: 30px; font-size: 0.8rem;"><i data-lucide="chevron-right" style="width: 14px; height: 14px;"></i></button>
-                </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+      <!-- TAB: Master Admin Panel -->
+      <div id="tab-admin" class="tab-content">
+
+        <!-- Master User List Table Card -->
+        <div class="card glass" style="margin-bottom: 0;">
+          <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <div class="header-icon"><i data-lucide="shield"></i></div>
+              <h3>Master User Directory <span id="admin-users-count" class="badge">0</span></h3>
+            </div>
+            <button class="btn secondary" onclick="loadMasterUsers()" style="padding: 6px 12px; height: 32px; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px;">
+              <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Refresh Users
+            </button>
+          </div>
+          <div class="card-body">
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Email Address</th>
+                    <th>Plan</th>
+                    <th>Verified</th>
+                    <th>Status</th>
+                    <th>Sent</th>
+                    <th>Failed</th>
+                    <th>Opened</th>
+                    <th>Clicked</th>
+                    <th width="220" style="text-align: center;">Administrative Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-users-table-body">
+                  <tr>
+                    <td colspan="9" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                      Loading users list...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -825,6 +985,59 @@
       <div class="modal-footer">
         <button class="btn secondary" onclick="closeExportModal()">Cancel</button>
         <button class="btn primary-gradient" onclick="submitExport()">
+          <i data-lucide="download"></i> Export CSV
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Master Admin View User Campaigns Modal -->
+  <div id="admin-view-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3><i data-lucide="eye"></i> Campaign Stats</h3>
+        <button class="modal-close-btn" onclick="closeAdminViewModal()">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body" style="padding-top: 0.5rem;">
+        <p id="admin-view-email" style="font-weight: 600; color: var(--color-primary); margin-bottom: 1.25rem; font-size: 0.95rem;">user@domain.com</p>
+        
+        <div class="input-group" style="margin-bottom: 1.5rem;">
+          <label for="admin-view-date">Select Campaign Date</label>
+          <input type="date" id="admin-view-date" onchange="loadAdminUserStatsForDate()">
+        </div>
+
+        <div class="metrics-grid" style="grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+          <div class="metric-card glass" style="padding: 0.75rem 1rem;">
+            <div class="metric-data">
+              <span class="label" style="font-size: 0.75rem;">Sent</span>
+              <h3 id="admin-view-sent" style="margin: 0; font-size: 1.5rem; color: var(--color-success);">0</h3>
+            </div>
+          </div>
+          <div class="metric-card glass" style="padding: 0.75rem 1rem;">
+            <div class="metric-data">
+              <span class="label" style="font-size: 0.75rem;">Failed</span>
+              <h3 id="admin-view-failed" style="margin: 0; font-size: 1.5rem; color: var(--color-danger);">0</h3>
+            </div>
+          </div>
+          <div class="metric-card glass" style="padding: 0.75rem 1rem;">
+            <div class="metric-data">
+              <span class="label" style="font-size: 0.75rem;">Opened</span>
+              <h3 id="admin-view-opened" style="margin: 0; font-size: 1.5rem; color: var(--color-primary);">0</h3>
+            </div>
+          </div>
+          <div class="metric-card glass" style="padding: 0.75rem 1rem;">
+            <div class="metric-data">
+              <span class="label" style="font-size: 0.75rem;">Clicked</span>
+              <h3 id="admin-view-clicked" style="margin: 0; font-size: 1.5rem; color: var(--color-cyan);">0</h3>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+        <button class="btn secondary" onclick="closeAdminViewModal()">Close</button>
+        <button class="btn primary-gradient" onclick="exportAdminUserCSV()">
           <i data-lucide="download"></i> Export CSV
         </button>
       </div>

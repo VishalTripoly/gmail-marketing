@@ -727,6 +727,41 @@ async function fetchStatus() {
     const oldStatus = currentStatus;
     currentStatus = data.status;
     
+    // Sync Identity & Plan Display
+    const authRole = localStorage.getItem('auth_role');
+    const planBadge = document.getElementById('user-plan-badge');
+    const planText = document.getElementById('user-plan-text');
+    const userIdentity = document.getElementById('user-identity-display');
+    
+    if (authRole === 'admin') {
+      if (planBadge) planBadge.style.display = 'none';
+      if (userIdentity) userIdentity.textContent = 'Administrator Console';
+    } else {
+      if (planBadge && data.plan) {
+        planBadge.style.display = 'inline-flex';
+        planText.textContent = `${data.plan} Plan`;
+        if (data.plan === 'PRO') {
+          planBadge.style.borderColor = 'rgba(139,92,246,0.3)';
+          planBadge.style.background = 'rgba(139,92,246,0.08)';
+          planBadge.style.color = '#c084fc';
+          planBadge.querySelector('.dot').style.backgroundColor = '#c084fc';
+        } else if (data.plan === 'ENTERPRISE') {
+          planBadge.style.borderColor = 'rgba(245,158,11,0.3)';
+          planBadge.style.background = 'rgba(245,158,11,0.08)';
+          planBadge.style.color = '#fbbf24';
+          planBadge.querySelector('.dot').style.backgroundColor = '#fbbf24';
+        } else {
+          planBadge.style.borderColor = 'rgba(156,163,175,0.3)';
+          planBadge.style.background = 'rgba(156,163,175,0.08)';
+          planBadge.style.color = '#9ca3af';
+          planBadge.querySelector('.dot').style.backgroundColor = '#9ca3af';
+        }
+      }
+      if (userIdentity) {
+        userIdentity.textContent = data.settings ? (data.settings.smtpUser || data.settings.adminUser || 'User Console') : 'User Console';
+      }
+    }
+    
     // If no date is selected, we are in calendar view, so only update global settings/status and skip campaign details
     if (!selectedDate) {
       settingsData = data.settings;
@@ -1014,7 +1049,7 @@ function renderRecipientsTable() {
   if (recipientsList.length === 0) {
     queueTbody.innerHTML = `
       <tr>
-        <td colspan="11" class="table-empty">
+        <td colspan="12" class="table-empty">
           <i data-lucide="users-2"></i>
           <p>No recipient list loaded yet. Upload your Excel/CSV sheet from the Compose tab.</p>
         </td>
@@ -1088,7 +1123,8 @@ function renderRecipientsTable() {
   queueTbody.innerHTML = paginated.map(r => {
     const sentTime = r.sentAt ? new Date(r.sentAt).toLocaleString() : '-';
     const statusLower = r.status.toLowerCase();
-    const errorText = r.error ? escapeHtml(r.error) : '-';
+    const errorHtml = r.error ? `<span style="color: var(--color-danger); display: inline-flex; align-items: center; gap: 6px; font-weight: 500;"><i data-lucide="alert-circle" style="width: 14px; height: 14px; flex-shrink: 0;"></i> ${escapeHtml(r.error)}</span>` : '-';
+    const errorTitle = r.error ? escapeHtml(r.error) : '';
     
     // --- Open Tracker Cell ---
     let openCell;
@@ -1160,7 +1196,7 @@ function renderRecipientsTable() {
         <td>${openCell}</td>
         <td>${clickCell}</td>
         <td>${sentTime}</td>
-        <td class="error-cell" title="${errorText}">${errorText}</td>
+        <td class="error-cell" title="${errorTitle}">${errorHtml}</td>
       </tr>
     `;
   }).join('');
@@ -1770,6 +1806,463 @@ window.dhNextPage = function() {
   }
 };
 
+// Role tab visibility helper
+function updateTabVisibilityBasedOnRole(role) {
+  const adminBtn = document.getElementById('admin-tab-btn');
+  const regularBtns = Array.from(document.querySelectorAll('.panel-tabs button:not(#admin-tab-btn)'));
+  
+  if (role === 'admin') {
+    if (adminBtn) adminBtn.style.display = 'inline-flex';
+    regularBtns.forEach(btn => btn.style.display = 'none');
+    switchTab('tab-admin');
+    loadMasterUsers();
+  } else {
+    if (adminBtn) adminBtn.style.display = 'none';
+    regularBtns.forEach(btn => btn.style.display = 'inline-flex');
+    const activeTabBtn = document.querySelector('.panel-tabs button.active');
+    if (!activeTabBtn || activeTabBtn === adminBtn) {
+      switchTab('tab-composer');
+    }
+  }
+}
+
+// Navigation switches for Authentication Overlays
+window.showSignupOverlay = function() {
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('signup-overlay').style.display = 'flex';
+  document.getElementById('verify-overlay').style.display = 'none';
+  document.getElementById('payment-overlay').style.display = 'none';
+};
+
+window.showLoginOverlay = function() {
+  document.getElementById('login-overlay').style.display = 'flex';
+  document.getElementById('signup-overlay').style.display = 'none';
+  document.getElementById('verify-overlay').style.display = 'none';
+  document.getElementById('payment-overlay').style.display = 'none';
+};
+
+window.togglePasswordVisibility = function(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const btn = input.nextElementSibling;
+  const icon = btn ? btn.querySelector('i') : null;
+  
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (icon) icon.setAttribute('data-lucide', 'eye-off');
+  } else {
+    input.type = 'password';
+    if (icon) icon.setAttribute('data-lucide', 'eye');
+  }
+  if (window.lucide) lucide.createIcons();
+};
+
+window.sendLoginOTP = async function(event) {
+  if (event) event.preventDefault();
+  
+  const emailInput = document.getElementById('login-username');
+  const email = emailInput.value.trim();
+  const errorMsgEl = document.getElementById('login-error-message');
+  const otpLink = document.getElementById('login-otp-link');
+  
+  errorMsgEl.style.display = 'none';
+  
+  if (!email) {
+    errorMsgEl.textContent = 'Please enter your Email Address first to request an OTP.';
+    errorMsgEl.style.display = 'block';
+    errorMsgEl.style.color = 'var(--color-danger)';
+    errorMsgEl.style.background = 'rgba(239,68,68,0.1)';
+    emailInput.focus();
+    return;
+  }
+  
+  const oldText = otpLink.textContent;
+  otpLink.textContent = 'Sending OTP...';
+  otpLink.style.pointerEvents = 'none';
+  
+  try {
+    const res = await originalFetch('/api/login/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      errorMsgEl.textContent = data.message || 'OTP sent successfully to your email!';
+      errorMsgEl.style.display = 'block';
+      errorMsgEl.style.color = 'var(--color-success)';
+      errorMsgEl.style.background = 'rgba(16,185,129,0.1)';
+      
+      // Focus OTP password input field
+      document.getElementById('login-password').focus();
+    } else {
+      errorMsgEl.textContent = data.error || 'Failed to send OTP.';
+      errorMsgEl.style.display = 'block';
+      errorMsgEl.style.color = 'var(--color-danger)';
+      errorMsgEl.style.background = 'rgba(239,68,68,0.1)';
+    }
+  } catch (err) {
+    errorMsgEl.textContent = 'Server connection failed.';
+    errorMsgEl.style.display = 'block';
+    errorMsgEl.style.color = 'var(--color-danger)';
+    errorMsgEl.style.background = 'rgba(239,68,68,0.1)';
+  } finally {
+    otpLink.textContent = oldText;
+    otpLink.style.pointerEvents = 'auto';
+  }
+};
+
+let registrationUserId = null; // Store temp user id during flow
+let selectedPlan = 'PRO'; // Default plan to PRO
+
+// Choose Plan Action
+window.selectCheckoutPlan = function(plan) {
+  selectedPlan = plan;
+  document.getElementById('plan-pro').className = 'plan-option-card';
+  document.getElementById('plan-pro').style.border = '2px solid var(--border-color)';
+  document.getElementById('plan-pro').style.background = 'rgba(255,255,255,0.02)';
+  
+  document.getElementById('plan-enterprise').className = 'plan-option-card';
+  document.getElementById('plan-enterprise').style.border = '2px solid var(--border-color)';
+  document.getElementById('plan-enterprise').style.background = 'rgba(255,255,255,0.02)';
+  
+  if (plan === 'PRO') {
+    const el = document.getElementById('plan-pro');
+    el.className = 'plan-option-card active';
+    el.style.border = '2px solid var(--color-primary)';
+    el.style.background = 'rgba(99,102,241,0.06)';
+  } else {
+    const el = document.getElementById('plan-enterprise');
+    el.className = 'plan-option-card active';
+    el.style.border = '2px solid var(--color-primary)';
+    el.style.background = 'rgba(99,102,241,0.06)';
+  }
+};
+
+// Submit Mock Payment
+window.submitCheckoutPayment = async function() {
+  const errorEl = document.getElementById('payment-error-message');
+  errorEl.style.display = 'none';
+  
+  if (!registrationUserId) {
+    errorEl.textContent = 'User context lost. Please try registering again.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  
+  const payBtn = document.querySelector('#payment-overlay button');
+  const oldText = payBtn.innerHTML;
+  payBtn.disabled = true;
+  payBtn.innerHTML = '<i class="spin-icon" data-lucide="loader"></i> Processing Payment...';
+  lucide.createIcons();
+  
+  try {
+    const res = await originalFetch('/api/complete-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: registrationUserId, plan: selectedPlan })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(data.message || 'Payment Successful! Account pending approval.');
+      document.getElementById('payment-overlay').style.display = 'none';
+      showLoginOverlay();
+      document.getElementById('login-username').value = '';
+      document.getElementById('login-password').value = '';
+    } else {
+      errorEl.textContent = data.error || 'Payment failed.';
+      errorEl.style.display = 'block';
+    }
+  } catch (err) {
+    errorEl.textContent = 'Server connection failed.';
+    errorEl.style.display = 'block';
+  } finally {
+    payBtn.disabled = false;
+    payBtn.innerHTML = oldText;
+    lucide.createIcons();
+  }
+};
+
+// Signup form submit
+document.getElementById('signup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const errorEl = document.getElementById('signup-error-message');
+  
+  errorEl.style.display = 'none';
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="spin-icon" data-lucide="loader"></i> Registering...';
+  lucide.createIcons();
+  
+  try {
+    const res = await originalFetch('/api/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      registrationUserId = data.userId;
+      document.getElementById('signup-overlay').style.display = 'none';
+      document.getElementById('verify-overlay').style.display = 'flex';
+      document.getElementById('verify-code').value = '';
+      document.getElementById('verify-code').focus();
+    } else {
+      errorEl.textContent = data.error || 'Registration failed.';
+      errorEl.style.display = 'block';
+    }
+  } catch (err) {
+    errorEl.textContent = 'Server connection failed.';
+    errorEl.style.display = 'block';
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i data-lucide="user-plus"></i> Register Account';
+    lucide.createIcons();
+  }
+});
+
+// Verify email code submit
+document.getElementById('verify-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = document.getElementById('verify-code').value.trim();
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const errorEl = document.getElementById('verify-error-message');
+  
+  errorEl.style.display = 'none';
+  
+  if (!registrationUserId) {
+    errorEl.textContent = 'User context lost. Please try registering again.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="spin-icon" data-lucide="loader"></i> Verifying Code...';
+  lucide.createIcons();
+  
+  try {
+    const res = await originalFetch('/api/verify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: registrationUserId, code })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      document.getElementById('verify-overlay').style.display = 'none';
+      document.getElementById('payment-overlay').style.display = 'flex';
+    } else {
+      errorEl.textContent = data.error || 'Verification failed.';
+      errorEl.style.display = 'block';
+    }
+  } catch (err) {
+    errorEl.textContent = 'Server connection failed.';
+    errorEl.style.display = 'block';
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i data-lucide="check-circle"></i> Verify Code';
+    lucide.createIcons();
+  }
+});
+
+// Master Admin: Retrieve & Aggregates statistics of users
+window.loadMasterUsers = async function() {
+  const tableBody = document.getElementById('admin-users-table-body');
+  if (!tableBody) return;
+  
+  try {
+    const response = await fetch('/api/master/users');
+    if (!response.ok) {
+      if (response.status === 403) {
+        tableBody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--color-danger); padding: 1.5rem;">Access Denied. Admin privileges required.</td></tr>`;
+      } else {
+        throw new Error('Failed to fetch users');
+      }
+      return;
+    }
+    
+    const users = await response.json();
+    let totalUsers = users.length;
+    
+    document.getElementById('admin-users-count').textContent = totalUsers;
+    
+    if (users.length === 0) {
+      tableBody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No user accounts found.</td></tr>`;
+      return;
+    }
+    
+    tableBody.innerHTML = users.map(u => {
+      const isVerifiedHtml = u.verified 
+        ? `<span class="badge-status sent" style="background: rgba(16,185,129,0.1); color: var(--color-success); font-weight:600;">Yes</span>`
+        : `<span class="badge-status failed" style="background: rgba(239,68,68,0.1); color: var(--color-danger); font-weight:600;">No</span>`;
+        
+      let statusClass = 'pending';
+      if (u.status === 'ACTIVE') statusClass = 'sent';
+      if (u.status === 'DEACTIVATED') statusClass = 'failed';
+      
+      const statusHtml = `<span class="badge-status ${statusClass}" style="font-weight:600;">${u.status}</span>`;
+      
+      // Actions
+      let actionsHtml = '';
+      
+      // Always show view stats button for active/deactivated users
+      actionsHtml += `
+        <button class="btn secondary" style="padding: 4px 10px; font-size: 0.75rem; height: 28px; display: inline-flex; align-items: center; gap: 4px; margin-right: 6px;" onclick="openAdminViewModal('${u.id}', '${escapeHtml(u.email)}')">
+          <i data-lucide="eye" style="width: 12px; height: 12px;"></i> View
+        </button>
+      `;
+
+      if (u.status === 'PENDING_APPROVAL') {
+        actionsHtml += `
+          <button class="btn primary-gradient" style="padding: 4px 10px; font-size: 0.75rem; height: 28px; display: inline-flex; align-items: center; gap: 4px; margin-right: 6px;" onclick="approveUser('${u.id}')">
+            <i data-lucide="check" style="width: 12px; height: 12px;"></i> Approve
+          </button>
+        `;
+      }
+      
+      if (u.status === 'ACTIVE') {
+        actionsHtml += `
+          <button class="btn danger" style="padding: 4px 10px; font-size: 0.75rem; height: 28px; background: rgba(239,68,68,0.15); color: var(--color-danger); border: 1px solid rgba(239,68,68,0.3); display: inline-flex; align-items: center; gap: 4px;" onclick="toggleUserStatus('${u.id}', 'DEACTIVATED')">
+            <i data-lucide="user-x" style="width: 12px; height: 12px;"></i> Deactivate
+          </button>
+        `;
+      } else if (u.status === 'DEACTIVATED') {
+        actionsHtml += `
+          <button class="btn success" style="padding: 4px 10px; font-size: 0.75rem; height: 28px; background: rgba(16,185,129,0.15); color: var(--color-success); border: 1px solid rgba(16,185,129,0.3); display: inline-flex; align-items: center; gap: 4px;" onclick="toggleUserStatus('${u.id}', 'ACTIVE')">
+            <i data-lucide="user-check" style="width: 12px; height: 12px;"></i> Activate
+          </button>
+        `;
+      }
+      
+      return `
+        <tr>
+          <td style="font-weight: 600; color: #fff;">${escapeHtml(u.email)}</td>
+          <td><span style="font-weight: 600; color: #a78bfa;">${escapeHtml(u.plan)}</span></td>
+          <td>${isVerifiedHtml}</td>
+          <td>${statusHtml}</td>
+          <td style="font-weight: 600; color: var(--color-success);">${u.metrics.sent}</td>
+          <td style="font-weight: 600; color: var(--color-danger);">${u.metrics.failed}</td>
+          <td style="font-weight: 600; color: var(--color-primary);">${u.metrics.opened}</td>
+          <td style="font-weight: 600; color: var(--color-cyan);">${u.metrics.clicked}</td>
+          <td style="text-align: center;">${actionsHtml}</td>
+        </tr>
+      `;
+    }).join('');
+    
+    if (window.lucide) lucide.createIcons();
+    
+  } catch (error) {
+    console.error('Error fetching master users list:', error);
+    tableBody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--color-danger); padding: 1.5rem;">Failed to retrieve user list: ${error.message}</td></tr>`;
+  }
+};
+
+let currentAdminUserId = null;
+let currentAdminUserEmail = '';
+
+window.openAdminViewModal = function(userId, email) {
+  currentAdminUserId = userId;
+  currentAdminUserEmail = email;
+  
+  document.getElementById('admin-view-email').textContent = email;
+  
+  // Set date selector value to today's date formatted as YYYY-MM-DD
+  const today = new Date();
+  const dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  document.getElementById('admin-view-date').value = dateStr;
+  
+  document.getElementById('admin-view-modal').classList.add('active');
+  loadAdminUserStatsForDate();
+};
+
+window.closeAdminViewModal = function() {
+  document.getElementById('admin-view-modal').classList.remove('active');
+};
+
+window.loadAdminUserStatsForDate = async function() {
+  const date = document.getElementById('admin-view-date').value;
+  if (!currentAdminUserId || !date) return;
+  
+  // Reset fields to loading state
+  document.getElementById('admin-view-sent').textContent = '...';
+  document.getElementById('admin-view-failed').textContent = '...';
+  document.getElementById('admin-view-opened').textContent = '...';
+  document.getElementById('admin-view-clicked').textContent = '...';
+  
+  try {
+    const res = await fetch(`/api/master/user/campaign-stats?userId=${currentAdminUserId}&date=${date}`);
+    if (res.ok) {
+      const stats = await res.json();
+      document.getElementById('admin-view-sent').textContent = stats.sent;
+      document.getElementById('admin-view-failed').textContent = stats.failed;
+      document.getElementById('admin-view-opened').textContent = stats.opened;
+      document.getElementById('admin-view-clicked').textContent = stats.clicked;
+    } else {
+      throw new Error('Failed to load user stats');
+    }
+  } catch (error) {
+    console.error('Error loading admin user stats:', error);
+    document.getElementById('admin-view-sent').textContent = 'Error';
+    document.getElementById('admin-view-failed').textContent = 'Error';
+    document.getElementById('admin-view-opened').textContent = 'Error';
+    document.getElementById('admin-view-clicked').textContent = 'Error';
+  }
+};
+
+window.exportAdminUserCSV = function() {
+  const date = document.getElementById('admin-view-date').value;
+  if (!currentAdminUserId || !date) {
+    alert('User context or date is missing.');
+    return;
+  }
+  const token = localStorage.getItem('auth_token');
+  window.location.href = `/api/master/user/export-csv?userId=${currentAdminUserId}&date=${date}&token=${encodeURIComponent(token)}`;
+};
+
+window.approveUser = async function(userId) {
+  if (!confirm('Are you sure you want to approve this user registration?')) return;
+  
+  try {
+    const res = await fetch('/api/master/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(data.message || 'User approved successfully!');
+      loadMasterUsers();
+    } else {
+      alert(data.error || 'Approval failed.');
+    }
+  } catch (err) {
+    alert('Server communication failed.');
+  }
+};
+
+window.toggleUserStatus = async function(userId, status) {
+  const statusLabel = status === 'ACTIVE' ? 'activate' : 'deactivate';
+  if (!confirm(`Are you sure you want to ${statusLabel} this user?`)) return;
+  
+  try {
+    const res = await fetch('/api/master/toggle-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, status })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(data.message || `User status updated to ${status}.`);
+      loadMasterUsers();
+    } else {
+      alert(data.error || 'Failed to update user status.');
+    }
+  } catch (err) {
+    alert('Server communication failed.');
+  }
+};
+
 // Login Form Submission Controller
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1793,19 +2286,40 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     const result = await response.json();
     if (response.ok && result.success) {
       localStorage.setItem('auth_token', result.token);
+      localStorage.setItem('auth_role', result.role);
+      registrationUserId = null;
       hideLoginScreen();
+      updateTabVisibilityBasedOnRole(result.role);
+      
       // Initialize application data
       await fetchStatus();
-      if (!selectedDate) {
-        await fetchCalendarCampaigns();
-      } else {
-        await loadDateHistory(selectedDate);
+      if (result.role !== 'admin') {
+        if (!selectedDate) {
+          await fetchCalendarCampaigns();
+        } else {
+          await loadDateHistory(selectedDate);
+        }
       }
     } else {
-      errorMsgEl.textContent = result.error || 'Authentication failed.';
-      errorMsgEl.style.display = 'block';
+      errorMsgEl.style.color = 'var(--color-danger)';
+      errorMsgEl.style.background = 'rgba(239,68,68,0.1)';
+      
+      if (result.status === 'PENDING_VERIFICATION') {
+        registrationUserId = result.userId;
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('verify-overlay').style.display = 'flex';
+        document.getElementById('verify-code').value = '';
+        document.getElementById('verify-code').focus();
+        document.getElementById('verify-error-message').textContent = 'Please complete email verification.';
+        document.getElementById('verify-error-message').style.display = 'block';
+      } else {
+        errorMsgEl.textContent = result.error || 'Authentication failed.';
+        errorMsgEl.style.display = 'block';
+      }
     }
   } catch (err) {
+    errorMsgEl.style.color = 'var(--color-danger)';
+    errorMsgEl.style.background = 'rgba(239,68,68,0.1)';
     errorMsgEl.textContent = 'Server connection failed.';
     errorMsgEl.style.display = 'block';
   } finally {
@@ -1821,6 +2335,7 @@ window.logout = async function() {
     await fetch('/api/logout', { method: 'POST' });
   } catch (e) {}
   localStorage.removeItem('auth_token');
+  localStorage.removeItem('auth_role');
   document.getElementById('login-username').value = '';
   document.getElementById('login-password').value = '';
   showLoginScreen();
@@ -1847,8 +2362,11 @@ window.logout = async function() {
   }
   
   hideLoginScreen();
+  const role = localStorage.getItem('auth_role');
+  updateTabVisibilityBasedOnRole(role);
+  
   await fetchStatus();
-  if (document.getElementById('tab-composer').classList.contains('active')) {
+  if (role !== 'admin' && document.getElementById('tab-composer').classList.contains('active')) {
     if (!selectedDate) {
       await fetchCalendarCampaigns();
     } else {
@@ -1860,11 +2378,19 @@ window.logout = async function() {
   setInterval(async () => {
     if (!localStorage.getItem('auth_token')) return;
     await fetchStatus();
-    if (document.getElementById('tab-composer').classList.contains('active')) {
-      if (!selectedDate) {
-        await fetchCalendarCampaigns();
-      } else {
-        await loadDateHistory(selectedDate);
+    const currentRole = localStorage.getItem('auth_role');
+    if (currentRole === 'admin') {
+      // Periodic refresh of master user list
+      if (document.getElementById('tab-admin').classList.contains('active')) {
+        await loadMasterUsers();
+      }
+    } else {
+      if (document.getElementById('tab-composer').classList.contains('active')) {
+        if (!selectedDate) {
+          await fetchCalendarCampaigns();
+        } else {
+          await loadDateHistory(selectedDate);
+        }
       }
     }
   }, 3000);
